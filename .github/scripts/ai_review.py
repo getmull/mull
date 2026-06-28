@@ -90,7 +90,7 @@ except (json.JSONDecodeError, KeyError, IndexError, TypeError):
     review_body = (
         "Claude returned an unexpected response format. "
         "Manual review recommended.\n\n"
-        "Raw response:\n\n" + raw_text
+        "Raw response:\n\n```\n" + raw_text + "\n```"
     )
 
 if has_issues:
