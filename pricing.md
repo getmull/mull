@@ -1,4 +1,4 @@
-# Folio — Pricing
+# Mull — Pricing
 
 ---
 
@@ -37,7 +37,7 @@ Bringing your own Claude API key or ElevenLabs API key bypasses all usage limits
 
 1. Should Cloud Pro users be able to bring their own Claude key to get unlimited AI without upgrading to Team?
    - *Recommendation: Yes. Builds trust, reduces churn from power users.*
-2. Should self-hosted users have an optional "Folio-managed AI" add-on so they don't need to manage their own Anthropic account?
+2. Should self-hosted users have an optional "Mull-managed AI" add-on so they don't need to manage their own Anthropic account?
    - *Recommendation: No in V1. Too much operational complexity. Revisit at scale.*
 
 ---

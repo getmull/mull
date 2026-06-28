@@ -1,4 +1,4 @@
-# Folio
+# Mull
 
 **Read everything. Understand anything.**
 
@@ -26,7 +26,7 @@ No AI key required. Everything works. AI makes it exceptional.
 ## Quickstart (Self-Hosting)
 
 ```bash
-git clone https://github.com/[org]/folio
+git clone https://github.com/[org]/mull
 cp .env.example .env       # fill in required vars
 docker-compose up
 # → open http://localhost:3000
@@ -70,4 +70,4 @@ ELEVENLABS_API_KEY=
 
 ## License
 
-[AGPL-3.0](LICENSE) — free to self-host and modify. Cloud providers who modify Folio must publish their changes.
+[AGPL-3.0](LICENSE) — free to self-host and modify. Cloud providers who modify Mull must publish their changes.

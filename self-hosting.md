@@ -1,17 +1,17 @@
-# Folio — Self-Hosting Guide
+# Mull — Self-Hosting Guide
 
 ---
 
 ## Goal
 
-Zero to running Folio in under 10 minutes.
+Zero to running Mull in under 10 minutes.
 
 ---
 
 ## Quickstart
 
 ```bash
-git clone https://github.com/[org]/folio
+git clone https://github.com/[org]/mull
 cp .env.example .env       # fill in required vars below
 docker-compose up
 # → open http://localhost:3000
@@ -69,9 +69,9 @@ If `ELEVENLABS_API_KEY` is not set:
 
 ## Telemetry
 
-Folio collects zero telemetry by default.
+Mull collects zero telemetry by default.
 
-Optional opt-in: set `FOLIO_PING=true` in your `.env` to send a daily anonymous ping (no personal data, no document data — just a deployment count). This helps us understand how many self-hosted instances are running. Fully documented, fully opt-in.
+Optional opt-in: set `MULL_PING=true` in your `.env` to send a daily anonymous ping (no personal data, no document data — just a deployment count). This helps us understand how many self-hosted instances are running. Fully documented, fully opt-in.
 
 ---
 
@@ -95,8 +95,8 @@ Database migrations run automatically on startup via Supabase migrations.
 | Storage | Unlimited (your disk) | 5GB / 50GB / Unlimited |
 | AI | BYOK (unlimited) | 100 / 1,500 chats/mo (or BYOK) |
 | Listen | Browser voice free, ElevenLabs BYOK | Browser voice free, ElevenLabs included on Pro |
-| Maintenance | You manage it | Folio manages it |
-| Data ownership | Fully yours | Folio's infrastructure |
+| Maintenance | You manage it | Mull manages it |
+| Data ownership | Fully yours | Mull's infrastructure |
 
 ---
 

@@ -1,4 +1,4 @@
-# Folio — Product Spec
+# Mull — Product Spec
 
 ---
 
@@ -73,7 +73,7 @@ Any saved document or article can be listened to. The feature is called **Listen
 - Same UI — just a better audio source
 
 **Cloud Pro — ElevenLabs included:**
-- Folio-managed key, no setup
+- Mull-managed key, no setup
 - Included in Pro, subject to fair-use character limits
 
 **Graceful degradation:** Always falls back to browser voice if no ElevenLabs key is set. Always shows which voice is active. Never fails silently.
@@ -109,7 +109,7 @@ All AI uses the Claude API (`claude-sonnet-4-6`). No API key = AI features hidde
 
 **Reading Memory:**
 
-When a user reopens a document they haven't visited in a while, Folio surfaces a contextual recap:
+When a user reopens a document they haven't visited in a while, Mull surfaces a contextual recap:
 
 ```
 Last opened 6 months ago.
@@ -152,12 +152,12 @@ Tapable to see what you read in any given month. "Spotify Wrapped for your readi
 
 ### 6. Library Experience
 
-The library is the homepage and the heart of the product — not the PDF viewer. Users should want to open Folio every day.
+The library is the homepage and the heart of the product — not the PDF viewer. Users should want to open Mull every day.
 
 **Library view concept:**
 ```
 +------------------------------------------+
-|  Folio          [Search]        [+ Add]  |
+|  Mull          [Search]        [+ Add]  |
 |------------------------------------------|
 |  Continue Reading                        |
 |  › Attention Is All You Need   — 64%    |
@@ -179,7 +179,7 @@ No native app in V1 — but the web app must be fully usable on mobile:
 - Responsive layout down to 375px
 - Touch-friendly highlight and bookmark interactions
 - PWA manifest + service worker — installable on iOS/Android home screen
-- "Share to Folio" via iOS/Android share sheet
+- "Share to Mull" via iOS/Android share sheet
 
 Native apps are V2.
 

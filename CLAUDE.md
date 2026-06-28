@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## What Folio Is
+## What Mull Is
 
 An open-source, self-hostable **reading workspace** for PDFs, articles, and technical documents — combining a PDF-first reading experience with AI-powered comprehension.
 
@@ -148,7 +148,7 @@ ELEVENLABS_API_KEY=
 ## Non-Negotiable Rules
 
 ### AI Core Philosophy
-AI enhances the experience — it never gates the core reading workflow. Folio must be fully usable with zero API keys configured.
+AI enhances the experience — it never gates the core reading workflow. Mull must be fully usable with zero API keys configured.
 
 **Graceful degradation:**
 | Missing config | Required behavior |

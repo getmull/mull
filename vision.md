@@ -1,4 +1,4 @@
-# Folio — Vision
+# Mull — Vision
 
 > **Tagline:** Read everything. Understand anything.
 > **Mission:** Build the best place to read, understand, and remember long-form content.
@@ -18,11 +18,11 @@ That's the product. Everything else supports that.
 
 ## The North Star
 
-If Folio disappeared tomorrow, users should feel like they've lost their personal library.
+If Mull disappeared tomorrow, users should feel like they've lost their personal library.
 
 ---
 
-## Why Folio Exists
+## Why Mull Exists
 
 The real gap in the market isn't "read-it-later." That category is crowded and mostly solved. The gap is a reading workspace — a place where your documents, highlights, notes, and understanding compound over time.
 
@@ -34,13 +34,13 @@ Every major tool fails in at least one dimension:
 - **Zotero / Obsidian** — powerful but steep learning curves, not built for reading flow
 - **Omnivore** — best open-source option, shut down October 2024
 
-Folio is the reading workspace for people who take what they read seriously. PDF-first. AI-native. Fully yours.
+Mull is the reading workspace for people who take what they read seriously. PDF-first. AI-native. Fully yours.
 
 ---
 
 ## Real Competitors
 
-| Tool | Strength | Folio's Edge |
+| Tool | Strength | Mull's Edge |
 |---|---|---|
 | Readwise Reader | Polished UX, highlights sync | Open source, self-hostable, BYOK AI |
 | NotebookLM | Cross-doc AI | Full reading experience, queue, library |
@@ -67,7 +67,7 @@ Retention is the product.
 
 - Every highlight is searchable — your annotations become a living knowledge base
 - Every document remembers where you stopped — no hunting for your place
-- Reading Memory — reopen a document six months later and Folio tells you what you highlighted, what you asked, and gives you a 30-second refresher
+- Reading Memory — reopen a document six months later and Mull tells you what you highlighted, what you asked, and gives you a 30-second refresher
 - Reading Timeline — see what you were reading in January, which months were your heaviest, your year in review
 - AI understands your entire library — cross-document chat is coming (V1.1)
 - Reading becomes cumulative, not disposable
@@ -79,7 +79,7 @@ Retention is the product.
 
 **Save → Read → Understand → Remember**
 
-Every feature in Folio should make at least one of those four stages meaningfully better. If it doesn't, it doesn't ship.
+Every feature in Mull should make at least one of those four stages meaningfully better. If it doesn't, it doesn't ship.
 
 ---
 
@@ -87,7 +87,7 @@ Every feature in Folio should make at least one of those four stages meaningfull
 
 > AI enhances the experience. It never gates the core reading workflow.
 
-Folio must be fully usable as a reading tool without any AI API key configured. AI makes it exceptional. The reading experience makes it indispensable.
+Mull must be fully usable as a reading tool without any AI API key configured. AI makes it exceptional. The reading experience makes it indispensable.
 
 ---
 

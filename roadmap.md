@@ -1,4 +1,4 @@
-# Folio — Roadmap
+# Mull — Roadmap
 
 ---
 
@@ -9,7 +9,7 @@ Before any roadmap items, nail these four things. Everything else depends on the
 1. **A genuinely excellent PDF reader** — this has to be the best part of the product
 2. **Reliable ingestion** — every PDF and article should just work
 3. **AI users can trust** — every answer cites the source; trust is the moat
-4. **A beautiful library** — users should want to open Folio every day, not just when they remember they saved something
+4. **A beautiful library** — users should want to open Mull every day, not just when they remember they saved something
 
 ---
 
@@ -63,7 +63,7 @@ Before any roadmap items, nail these four things. Everything else depends on the
 
 Every feature request should answer: *Does this make reading and understanding long-form content meaningfully better?*
 
-If the answer isn't clearly yes, it doesn't ship. Folio is a reading workspace. Not a writing tool, not a task manager, not a social network.
+If the answer isn't clearly yes, it doesn't ship. Mull is a reading workspace. Not a writing tool, not a task manager, not a social network.
 
 ---
 
