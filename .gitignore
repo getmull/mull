@@ -26,6 +26,9 @@ env/
 *.egg-info/
 dist/
 *.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # OS
 .DS_Store
@@ -51,6 +54,9 @@ next-env.d.ts
 # Testing
 coverage/
 .nyc_output/
+
+# Certificates
+*.pem
 
 # Misc
 .turbo/
