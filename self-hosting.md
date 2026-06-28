@@ -11,7 +11,7 @@ Zero to running Mull in under 10 minutes.
 ## Quickstart
 
 ```bash
-git clone https://github.com/[org]/mull
+git clone https://github.com/getmull/mull
 cp .env.example .env       # fill in required vars below
 docker-compose up
 # → open http://localhost:3000

@@ -26,7 +26,7 @@ No AI key required. Everything works. AI makes it exceptional.
 ## Quickstart (Self-Hosting)
 
 ```bash
-git clone https://github.com/[org]/mull
+git clone https://github.com/getmull/mull
 cp .env.example .env       # fill in required vars
 docker-compose up
 # → open http://localhost:3000

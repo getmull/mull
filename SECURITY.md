@@ -4,7 +4,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Use GitHub's [private vulnerability reporting](https://github.com/[org]/mull/security/advisories/new) to report a vulnerability confidentially. You can also email **security@getmull.com**.
+Use GitHub's [private vulnerability reporting](https://github.com/getmull/mull/security/advisories/new) to report a vulnerability confidentially. You can also email **security@getmull.com**.
 
 Include:
 - A clear description of the vulnerability
