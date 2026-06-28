@@ -13,6 +13,13 @@ github_token = require_env("GITHUB_TOKEN")
 pr_number = require_env("PR_NUMBER")
 repo = require_env("REPO")
 
+if not pr_number.isdigit():
+    print(f"Invalid PR_NUMBER: {pr_number}")
+    sys.exit(1)
+if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    print(f"Invalid REPO format: {repo}")
+    sys.exit(1)
+
 # Sanitise PR_AUTHOR — only allow valid GitHub username characters
 raw_author = os.environ.get("PR_AUTHOR", "")
 author = re.sub(r"[^A-Za-z0-9_-]", "", raw_author)
@@ -54,7 +61,7 @@ user_message = (
     "\n--- END DIFF ---"
 )
 
-# max_tokens set to 2048 — sufficient for focused per-rule findings
+# claude-sonnet-4-6 is the correct model ID for Sonnet 4.6 (per Mull's CLAUDE.md)
 payload = {
     "model": "claude-sonnet-4-6",
     "max_tokens": 2048,
@@ -87,10 +94,12 @@ except (json.JSONDecodeError, KeyError, IndexError, TypeError):
     has_issues = True
     content_items = result.get("content") or []
     raw_text = content_items[0].get("text", "unavailable") if content_items else "unavailable"
+    # Escape triple backticks so they can't break out of the fenced code block
+    safe_raw = raw_text.replace("```", "` ` `")
     review_body = (
         "Claude returned an unexpected response format. "
         "Manual review recommended.\n\n"
-        "Raw response:\n\n```\n" + raw_text + "\n```"
+        "Raw response:\n\n```\n" + safe_raw + "\n```"
     )
 
 if has_issues:
