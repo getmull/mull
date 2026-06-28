@@ -82,13 +82,15 @@ try:
     parsed = json.loads(result["content"][0]["text"])
     has_issues = parsed.get("has_issues", True)
     review_body = parsed.get("review", "No findings.")
-except (json.JSONDecodeError, KeyError):
+except (json.JSONDecodeError, KeyError, IndexError, TypeError):
     # Default to flagging when response can't be parsed — never silently approve
     has_issues = True
+    content_items = result.get("content") or []
+    raw_text = content_items[0].get("text", "unavailable") if content_items else "unavailable"
     review_body = (
         "Claude returned an unexpected response format. "
         "Manual review recommended.\n\n"
-        "Raw response:\n\n" + result.get("content", [{}])[0].get("text", "unavailable")
+        "Raw response:\n\n" + raw_text
     )
 
 if has_issues:
@@ -96,7 +98,7 @@ if has_issues:
     header = "## AI Code Review — Action Required\n\n"
 else:
     mention = ""
-    header = "## AI Code Review — Looks Good\n\nAll previously flagged issues appear resolved. You can now mark threads as resolved and approve.\n\n"
+    header = "## AI Code Review — Looks Good\n\nNo issues found. You can approve this PR.\n\n"
 
 comment = f"{header}{mention}{review_body}\n\n---\n*Reviewed by Claude (`claude-sonnet-4-6`)*"
 
