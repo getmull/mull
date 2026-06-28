@@ -65,10 +65,16 @@ except (json.JSONDecodeError, KeyError):
     has_issues = False
     review_body = result["content"][0]["text"]
 
-event = "REQUEST_CHANGES" if has_issues else "APPROVE"
 author = os.environ.get("PR_AUTHOR", "")
-mention = f"@{author} — please review the findings below.\n\n" if has_issues and author else ""
-comment = f"## AI Code Review\n\n{mention}{review_body}\n\n---\n*Reviewed by Claude (`claude-sonnet-4-6`)*"
+if has_issues:
+    mention = f"@{author} — please review the findings below.\n\n" if author else ""
+    header = "## AI Code Review — Action Required\n\n"
+else:
+    mention = ""
+    header = "## AI Code Review — Looks Good\n\n"
+
+event = "COMMENT"
+comment = f"{header}{mention}{review_body}\n\n---\n*Reviewed by Claude (`claude-sonnet-4-6`)*"
 
 try:
     gh_req = urllib.request.Request(
