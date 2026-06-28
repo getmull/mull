@@ -1,0 +1,90 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get diff
+        run: git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+
+      - name: Review with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import os, json, urllib.request, sys
+
+          with open("pr.diff") as f:
+              diff = f.read()
+
+          if not diff.strip():
+              print("Empty diff — skipping review.")
+              sys.exit(0)
+
+          if len(diff) > 30000:
+              diff = diff[:30000] + "\n\n[diff truncated — showing first 30k chars]"
+
+          payload = {
+              "model": "claude-sonnet-4-6",
+              "max_tokens": 1024,
+              "messages": [{
+                  "role": "user",
+                  "content": f"""You are reviewing a pull request for Mull — an open-source reading workspace (Next.js 14 + TypeScript + Python + Supabase).
+
+Review this diff for:
+- Bugs or logic errors
+- Security issues (XSS, SQL injection, RLS bypasses, exposed secrets)
+- Missing env var null checks (all API routes must degrade gracefully)
+- TypeScript `any` without an explanatory comment
+- AI responses missing source citations (cite-back is non-negotiable)
+- Direct pushes to Supabase Storage bypassed in favour of Postgres binary storage
+
+Be concise. Flag real issues only — no style nitpicks. Format as a short markdown list. If nothing is wrong, say so in one line.
+
+```diff
+{diff}
+```"""
+              }]
+          }
+
+          req = urllib.request.Request(
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps(payload).encode(),
+              headers={
+                  "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+                  "anthropic-version": "2023-06-01",
+                  "content-type": "application/json",
+              }
+          )
+          with urllib.request.urlopen(req) as resp:
+              result = json.loads(resp.read())
+
+          review = result["content"][0]["text"]
+          comment = f"## AI Code Review\n\n{review}\n\n---\n*Reviewed by Claude (`claude-sonnet-4-6`)*"
+
+          gh_req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR_NUMBER']}/comments",
+              data=json.dumps({"body": comment}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              }
+          )
+          urllib.request.urlopen(gh_req)
+          print("Review posted.")
+          EOF
