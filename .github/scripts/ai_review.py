@@ -54,10 +54,10 @@ user_message = (
     "\n--- END DIFF ---"
 )
 
-# max_tokens set to 2048 — 1024 was too tight when multiple issues need explanation
+# max_tokens set to 1024 — sufficient for focused per-rule findings
 payload = {
     "model": "claude-sonnet-4-6",
-    "max_tokens": 2048,
+    "max_tokens": 1024,
     "system": system_prompt,
     "messages": [{"role": "user", "content": user_message}],
 }
