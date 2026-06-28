@@ -96,7 +96,7 @@ if has_issues:
     header = "## AI Code Review — Action Required\n\n"
 else:
     mention = ""
-    header = "## AI Code Review — Looks Good\n\n"
+    header = "## AI Code Review — Looks Good\n\nAll previously flagged issues appear resolved. You can now mark threads as resolved and approve.\n\n"
 
 comment = f"{header}{mention}{review_body}\n\n---\n*Reviewed by Claude (`claude-sonnet-4-6`)*"
 

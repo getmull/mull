@@ -18,7 +18,14 @@ jobs:
       - name: Get diff
         run: git diff origin/${{ github.base_ref }}...HEAD > pr.diff
 
+      - name: Check if Claude authored commits
+        id: claude_check
+        run: |
+          COUNT=$(git log origin/${{ github.base_ref }}...HEAD --format="%B" | grep -ic "co-authored-by: claude" || true)
+          echo "claude_authored=$COUNT" >> $GITHUB_OUTPUT
+
       - name: Review with Claude
+        if: steps.claude_check.outputs.claude_authored == '0'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
