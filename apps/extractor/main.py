@@ -19,11 +19,18 @@ _SHARED_SECRET = os.environ.get("EXTRACTOR_SECRET") or None
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_UPLOAD_BYTES:
-            return JSONResponse(
-                status_code=413,
-                content={"detail": "File exceeds 100 MB limit"},
-            )
+        if content_length:
+            try:
+                if int(content_length) > MAX_UPLOAD_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "File exceeds 100 MB limit"},
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header"},
+                )
         return await call_next(request)
 
 
