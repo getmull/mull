@@ -99,7 +99,7 @@ try:
     parsed = json.loads(raw_text)
     has_issues = parsed.get("has_issues", True)
     review_body = parsed.get("review", "No findings.")
-except (json.JSONDecodeError, TypeError):
+except (json.JSONDecodeError, TypeError, AttributeError):
     # Default to flagging when response can't be parsed — never silently approve
     has_issues = True
     raw_text = raw_text or "unavailable"
