@@ -88,8 +88,11 @@ except urllib.error.URLError as e:
     print(f"Claude API connection error: {e.reason}")
     sys.exit(0)
 
-content_items = result.get("content") or []
-first_item = content_items[0] if content_items and isinstance(content_items[0], dict) else {}
+content_items = result.get("content")
+if not isinstance(content_items, list):
+    content_items = []
+
+first_item = content_items[0] if len(content_items) > 0 and isinstance(content_items[0], dict) else {}
 raw_text = first_item.get("text", "")
 
 try:
@@ -100,7 +103,8 @@ except (json.JSONDecodeError, TypeError):
     # Default to flagging when response can't be parsed — never silently approve
     has_issues = True
     raw_text = raw_text or "unavailable"
-    fence_len = max(3, max((len(match.group(0)) for match in re.finditer(r"`+", raw_text)), default=0) + 1)
+    longest_backtick_run = max((len(match.group(0)) for match in re.finditer(r"`+", raw_text)), default=0)
+    fence_len = min(10, max(3, longest_backtick_run + 1))
     fence = "`" * fence_len
     review_body = (
         "Claude returned an unexpected response format. "
@@ -109,7 +113,7 @@ except (json.JSONDecodeError, TypeError):
     )
 
 if has_issues:
-    mention = f"@{author} — please review the findings below.\n\n" if author else ""
+    mention = f"@{author} — please review the findings below.\n\n" if len(author) > 0 else ""
     header = "## AI Code Review — Action Required\n\n"
 else:
     mention = ""
