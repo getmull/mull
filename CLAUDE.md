@@ -47,17 +47,21 @@ Every feature decision should answer: *Does this make reading and understanding 
 
 **Web app (`apps/web`):**
 ```bash
-pnpm dev          # start dev server
-pnpm build        # production build
-pnpm lint         # ESLint
-pnpm test         # run test suite
-pnpm test <file>  # run a single test file
+pnpm dev                        # start dev server
+pnpm build                      # production build
+pnpm lint                       # ESLint
+pnpm test                       # run all unit/integration tests (Jest)
+pnpm test path/to/file.test.ts  # run a single test file
+pnpm test:e2e                   # run end-to-end tests (Playwright)
+pnpm test:e2e --headed          # run E2E tests with browser visible
 ```
 
 **Python extractor (`apps/extractor`):**
 ```bash
 pip install -r requirements.txt
-python main.py    # start sidecar server
+python main.py   # start sidecar server
+pytest           # run all Python tests
+pytest path/to/test_file.py  # run a single test file
 ```
 
 **Full stack:**
@@ -65,6 +69,33 @@ python main.py    # start sidecar server
 docker-compose up         # start all services
 docker-compose up --build # rebuild and start
 ```
+
+## Testing Strategy
+
+Every feature ships with tests. No exceptions.
+
+**Unit tests (Jest + React Testing Library):**
+- All utility functions and helpers
+- All React components (render, interaction, edge cases)
+- All API route handlers (with Supabase mocked at the client level)
+
+**Integration tests (Jest):**
+- ContentProvider implementations (PDFProvider, ArticleProvider)
+- AI layer (mocked Claude API responses)
+- Highlight, bookmark, search, and reading session flows
+
+**End-to-end tests (Playwright):**
+- Core user flows: upload PDF → read → highlight → Ask AI → Listen
+- Auth flows: sign up, sign in, sign out
+- Library: add, filter, search, archive
+- Graceful degradation: all flows with no API keys set
+
+**Python tests (pytest):**
+- Text extraction for valid PDFs, complex layouts, and scanned PDFs
+- Scanned PDF detection (< 50 chars/page threshold)
+- Sidecar API endpoints
+
+Test files live next to the code they test: `foo.ts` → `foo.test.ts`. E2E tests live in `apps/web/e2e/`.
 
 ---
 
