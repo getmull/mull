@@ -90,6 +90,32 @@ down: ## Stop all Docker services
 logs: ## Tail Docker Compose logs
 	docker-compose logs -f
 
+# ── Supabase (local) ──────────────────────────────────────────────────────────
+
+.PHONY: db-start
+db-start: ## Start local Supabase stack
+	supabase start
+
+.PHONY: db-stop
+db-stop: ## Stop local Supabase stack
+	supabase stop
+
+.PHONY: db-reset
+db-reset: ## Reset local database and re-run migrations
+	supabase db reset
+
+.PHONY: db-migrate
+db-migrate: ## Run pending database migrations
+	supabase migration up
+
+.PHONY: db-studio
+db-studio: ## Open Supabase Studio in browser
+	open http://127.0.0.1:54323
+
+.PHONY: db-status
+db-status: ## Show local Supabase connection details
+	supabase status
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 .PHONY: clean
