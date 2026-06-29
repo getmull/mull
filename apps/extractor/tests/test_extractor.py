@@ -34,7 +34,7 @@ def test_health():
 
 
 def test_extract_text_pdf():
-    pdf = make_pdf(["Hello world, this is page one.", "Page two has some content here."])
+    pdf = make_pdf(["Hello world, this is page one. " * 3, "Page two has some content here. " * 3])
     result = extract_pdf(pdf)
     assert result["page_count"] == 2
     assert result["is_scanned"] is False
