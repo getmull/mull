@@ -1,4 +1,4 @@
-import os, re, json, sys, urllib.request, urllib.error
+import html, os, re, json, sys, urllib.request, urllib.error
 
 # Fail fast with clear messages on missing required env vars
 def require_env(key):
@@ -97,12 +97,10 @@ except (json.JSONDecodeError, KeyError, IndexError, TypeError):
     has_issues = True
     content_items = result.get("content") or []
     raw_text = content_items[0].get("text", "unavailable") if content_items else "unavailable"
-    # Escape triple backticks so they can't break out of the fenced code block
-    safe_raw = raw_text.replace("```", "` ` `")
     review_body = (
         "Claude returned an unexpected response format. "
         "Manual review recommended.\n\n"
-        "Raw response:\n\n```\n" + safe_raw + "\n```"
+        "Raw response:\n\n<pre>" + html.escape(raw_text) + "</pre>"
     )
 
 if has_issues:
