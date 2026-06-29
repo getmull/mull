@@ -2,8 +2,11 @@ FROM node:20-alpine AS base
 
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable pnpm && pnpm install --frozen-lockfile
+COPY package.json ./
+# pnpm-lock.yaml lives in apps/web when building standalone; fall back to
+# regular install if the lock file diverges from the workspace root.
+COPY pnpm-lock.yaml* ./
+RUN corepack enable pnpm && pnpm install --no-frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app

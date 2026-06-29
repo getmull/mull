@@ -1,4 +1,3 @@
-import os
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -34,6 +33,7 @@ def test_health():
 
 
 def test_extract_text_pdf():
+    # Each page needs > 50 chars (SCANNED_THRESHOLD) to register as non-scanned
     pdf = make_pdf(["Hello world, this is page one. " * 3, "Page two has some content here. " * 3])
     result = extract_pdf(pdf)
     assert result["page_count"] == 2
