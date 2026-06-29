@@ -5,7 +5,7 @@
 .PHONY: install
 install: ## Install all dependencies (Node + Python)
 	pnpm install
-	cd apps/extractor && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+	cd apps/extractor && uv sync --dev
 
 .PHONY: env
 env: ## Copy .env.example to .env (only if .env doesn't exist)
@@ -23,7 +23,7 @@ dev: ## Start the Next.js dev server
 
 .PHONY: extractor
 extractor: ## Start the Python extractor sidecar
-	cd apps/extractor && .venv/bin/uvicorn main:app --reload --port 8000
+	cd apps/extractor && uv run uvicorn main:app --reload --port 8000
 
 .PHONY: dev-all
 dev-all: ## Start web + extractor together
@@ -56,11 +56,11 @@ test-e2e-headed: ## Run Playwright E2E tests with browser visible
 
 .PHONY: test-py
 test-py: ## Run Python extractor tests
-	cd apps/extractor && .venv/bin/pytest
+	cd apps/extractor && uv run pytest
 
 .PHONY: test-py-v
 test-py-v: ## Run Python tests with verbose output
-	cd apps/extractor && .venv/bin/pytest -v
+	cd apps/extractor && uv run pytest -v
 
 # ── Linting & Building ────────────────────────────────────────────────────────
 

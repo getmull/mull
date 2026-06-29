@@ -56,8 +56,10 @@ pnpm test <file>  # run a single test file
 
 **Python extractor (`apps/extractor`):**
 ```bash
-pip install -r requirements.txt
-python main.py    # start sidecar server
+uv sync --dev                        # install dependencies
+uv run uvicorn main:app --reload     # start sidecar server
+uv run pytest                        # run all tests
+uv run pytest path/to/test_file.py  # run a single test file
 ```
 
 **Full stack:**
