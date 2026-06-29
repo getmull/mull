@@ -49,3 +49,8 @@ def extract_pdf(contents: bytes) -> dict:
         "avg_chars_per_page": round(avg_chars, 1),
         "pages": pages,
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
