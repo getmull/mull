@@ -1,4 +1,4 @@
-import html, os, re, json, sys, urllib.request, urllib.error
+import os, re, json, sys, urllib.request, urllib.error
 
 # Fail fast with clear messages on missing required env vars
 def require_env(key):
@@ -88,19 +88,23 @@ except urllib.error.URLError as e:
     print(f"Claude API connection error: {e.reason}")
     sys.exit(0)
 
+content_items = result.get("content") or []
+raw_text = content_items[0].get("text", "") if content_items else ""
+
 try:
-    parsed = json.loads(result["content"][0]["text"])
+    parsed = json.loads(raw_text)
     has_issues = parsed.get("has_issues", True)
     review_body = parsed.get("review", "No findings.")
 except (json.JSONDecodeError, KeyError, IndexError, TypeError):
     # Default to flagging when response can't be parsed — never silently approve
     has_issues = True
-    content_items = result.get("content") or []
-    raw_text = content_items[0].get("text", "unavailable") if content_items else "unavailable"
+    raw_text = raw_text or "unavailable"
+    fence_len = max(3, max((len(match.group(0)) for match in re.finditer(r"`+", raw_text)), default=0) + 1)
+    fence = "`" * fence_len
     review_body = (
         "Claude returned an unexpected response format. "
         "Manual review recommended.\n\n"
-        "Raw response:\n\n<pre>" + html.escape(raw_text) + "</pre>"
+        f"Raw response:\n\n{fence}text\n{raw_text}\n{fence}"
     )
 
 if has_issues:
