@@ -6,6 +6,7 @@ import io
 app = FastAPI(title="Mull Extractor", version="0.1.0")
 
 SCANNED_THRESHOLD = 50  # chars per page average — below this, PDF is likely scanned
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 @app.get("/health")
@@ -18,12 +19,18 @@ async def extract(file: UploadFile = File(...)):
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
 
-    contents = await file.read()
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 100 MB limit")
+
     return extract_pdf(contents)
 
 
 def extract_pdf(contents: bytes) -> dict:
-    doc = fitz.open(stream=contents, filetype="pdf")
+    try:
+        doc = fitz.open(stream=contents, filetype="pdf")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not parse PDF: {e}")
     pages = []
     total_chars = 0
 
