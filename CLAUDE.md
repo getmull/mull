@@ -45,27 +45,25 @@ Every feature decision should answer: *Does this make reading and understanding 
 
 ## Development Commands
 
-**Web app (`apps/web`):**
+**Common:**
 ```bash
-pnpm dev          # start dev server
-pnpm build        # production build
-pnpm lint         # ESLint
-pnpm test         # run test suite
-pnpm test <file>  # run a single test file
+make setup          # first-time setup (env + install all deps)
+make dev            # start Next.js dev server
+make extractor      # start Python sidecar
+make dev-all        # start both together
+make test           # run all tests (Jest + pytest)
+make db-start       # start local Supabase
+make db-studio      # open Supabase Studio
+make up             # start full stack via Docker Compose
+make help           # list all available commands
 ```
 
-**Python extractor (`apps/extractor`):**
+**Direct (when you need to bypass Make):**
 ```bash
-uv sync --dev                        # install dependencies
-uv run uvicorn main:app --reload     # start sidecar server
-uv run pytest                        # run all tests
-uv run pytest path/to/test_file.py  # run a single test file
-```
-
-**Full stack:**
-```bash
-docker-compose up         # start all services
-docker-compose up --build # rebuild and start
+pnpm --filter web dev              # Next.js dev server
+pnpm --filter web test             # Jest tests
+pnpm --filter web test <file>      # single test file
+cd apps/extractor && uv run pytest # Python tests
 ```
 
 ---

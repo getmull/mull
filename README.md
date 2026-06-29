@@ -27,9 +27,14 @@ No AI key required. Everything works. AI makes it exceptional.
 
 ```bash
 git clone https://github.com/getmull/mull
-cp .env.example .env       # fill in required vars
+make setup        # copies .env → fills in deps (Node + Python)
+# fill in .env with your Supabase credentials
+make dev          # → http://localhost:3000
+```
+
+**Full stack via Docker:**
+```bash
 docker-compose up
-# → open http://localhost:3000
 ```
 
 ---
@@ -64,6 +69,7 @@ ELEVENLABS_API_KEY=
 - **PDF Extraction:** `pdf-parse` + `pymupdf` Python sidecar
 - **Article Parsing:** `@mozilla/readability`
 - **AI:** Claude API (`claude-sonnet-4-6`)
+- **Package manager:** pnpm (Node) + uv (Python)
 - **Self-hosting:** Docker Compose
 
 ---

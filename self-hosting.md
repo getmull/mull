@@ -12,7 +12,8 @@ Zero to running Mull in under 10 minutes.
 
 ```bash
 git clone https://github.com/getmull/mull
-cp .env.example .env       # fill in required vars below
+make setup        # copies .env.example → .env and installs all deps
+# fill in .env with your Supabase credentials
 docker-compose up
 # → open http://localhost:3000
 ```
