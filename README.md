@@ -58,7 +58,7 @@ ELEVENLABS_API_KEY=
 
 ## Tech Stack
 
-- **Frontend:** Next.js 14 + TypeScript (App Router)
+- **Frontend:** Next.js 16 + TypeScript (App Router)
 - **Auth + DB:** Supabase (Auth, Postgres, RLS)
 - **PDF Rendering:** PDF.js
 - **PDF Extraction:** `pdf-parse` + `pymupdf` Python sidecar

@@ -30,7 +30,7 @@ Core services (consume any ContentProvider):
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Frontend | Next.js 14 + TypeScript | App Router, RSC, familiar stack |
+| Frontend | Next.js 16 + TypeScript | App Router, RSC, familiar stack |
 | Auth + DB | Supabase | Auth, Postgres, RLS, Realtime |
 | File Storage | Supabase Storage | PDFs, images, article snapshots |
 | PDF Rendering | PDF.js | Browser-native original layout view |
