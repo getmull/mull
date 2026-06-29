@@ -84,6 +84,9 @@ try:
 except urllib.error.HTTPError as e:
     print(f"Claude API error: {e.code} — {e.read().decode()}")
     sys.exit(0)
+except urllib.error.URLError as e:
+    print(f"Claude API connection error: {e.reason}")
+    sys.exit(0)
 
 try:
     parsed = json.loads(result["content"][0]["text"])
@@ -129,3 +132,6 @@ try:
 except urllib.error.HTTPError as e:
     print(f"GitHub API error: {e.code} — {e.read().decode()}")
     sys.exit(1)
+except urllib.error.URLError as e:
+    print(f"GitHub API connection error: {e.reason}")
+    sys.exit(0)
