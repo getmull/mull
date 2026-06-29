@@ -27,7 +27,7 @@ extractor: ## Start the Python extractor sidecar
 
 .PHONY: dev-all
 dev-all: ## Start web + extractor together
-	make -j2 dev extractor
+	$(MAKE) -j2 dev extractor
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 
