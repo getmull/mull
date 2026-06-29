@@ -58,3 +58,17 @@ def test_extract_endpoint_accepts_pdf():
     data = response.json()
     assert data["page_count"] == 1
     assert "pages" in data
+
+
+def test_extract_endpoint_rejects_non_pdf_magic_bytes():
+    # File has .pdf extension but is not a real PDF
+    response = client.post(
+        "/extract",
+        files={"file": ("evil.pdf", b"not a real pdf", "application/pdf")},
+    )
+    assert response.status_code == 400
+
+
+def test_extract_pdf_raises_on_corrupt_bytes():
+    with pytest.raises(ValueError, match="Could not parse PDF"):
+        extract_pdf(b"%PDF-corrupted garbage")

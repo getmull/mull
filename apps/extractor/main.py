@@ -1,12 +1,20 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import os
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header
 from fastapi.responses import JSONResponse
 import fitz  # pymupdf
-import io
 
 app = FastAPI(title="Mull Extractor", version="0.1.0")
 
 SCANNED_THRESHOLD = 50  # chars per page average — below this, PDF is likely scanned
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+PDF_MAGIC = b"%PDF-"
+
+_SHARED_SECRET = os.environ.get("EXTRACTOR_SECRET")
+
+
+def _check_auth(x_extractor_secret: str | None) -> None:
+    if _SHARED_SECRET and x_extractor_secret != _SHARED_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.get("/health")
@@ -15,7 +23,12 @@ def health():
 
 
 @app.post("/extract")
-async def extract(file: UploadFile = File(...)):
+async def extract(
+    file: UploadFile = File(...),
+    x_extractor_secret: str | None = Header(default=None),
+):
+    _check_auth(x_extractor_secret)
+
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
 
@@ -23,14 +36,21 @@ async def extract(file: UploadFile = File(...)):
     if len(contents) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds 100 MB limit")
 
-    return extract_pdf(contents)
+    if not contents.startswith(PDF_MAGIC):
+        raise HTTPException(status_code=400, detail="File is not a valid PDF")
+
+    try:
+        return extract_pdf(contents)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 def extract_pdf(contents: bytes) -> dict:
     try:
         doc = fitz.open(stream=contents, filetype="pdf")
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Could not parse PDF: {e}")
+        raise ValueError(f"Could not parse PDF: {e}")
+
     pages = []
     total_chars = 0
 
