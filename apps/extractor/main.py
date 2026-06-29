@@ -32,9 +32,8 @@ app.add_middleware(MaxBodySizeMiddleware)
 
 def _check_auth(x_extractor_secret: str | None) -> None:
     if _SHARED_SECRET:
-        if x_extractor_secret is None or not hmac.compare_digest(
-            x_extractor_secret, _SHARED_SECRET
-        ):
+        provided = x_extractor_secret or ""
+        if not hmac.compare_digest(provided, _SHARED_SECRET):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
 
