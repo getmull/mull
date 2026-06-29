@@ -18,7 +18,7 @@ Every feature decision should answer: *Does this make reading and understanding 
 
 | Layer | Choice |
 |---|---|
-| Frontend | Next.js 14 + TypeScript (App Router) |
+| Frontend | Next.js 16 + TypeScript (App Router) |
 | Auth + DB | Supabase (Auth, Postgres, RLS, Realtime) |
 | File Storage | Supabase Storage |
 | PDF Rendering | PDF.js (browser-native, original layout view) |
