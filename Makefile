@@ -13,7 +13,7 @@ env: ## Copy .env.example to .env (only if .env doesn't exist)
 
 .PHONY: setup
 setup: env install ## First-time setup (env + install)
-	@echo "\nSetup complete. Run 'make dev' to start the web app."
+	@printf "\nSetup complete. Run 'make dev' to start the web app.\n"
 
 # ── Development ───────────────────────────────────────────────────────────────
 
