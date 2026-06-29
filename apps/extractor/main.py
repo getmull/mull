@@ -17,6 +17,11 @@ _SHARED_SECRET = os.environ.get("EXTRACTOR_SECRET") or None
 
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    # Early rejection for well-behaved clients that send Content-Length.
+    # Clients omitting Content-Length (chunked encoding) bypass this check;
+    # the file.read(MAX_UPLOAD_BYTES + 1) cap in the handler is the hard limit
+    # for those. Enforcing a true streaming cap requires an ASGI server-level
+    # setting (e.g. uvicorn --limit-concurrency) and is out of scope for V1.
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
         if content_length:
