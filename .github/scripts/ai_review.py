@@ -89,13 +89,14 @@ except urllib.error.URLError as e:
     sys.exit(0)
 
 content_items = result.get("content") or []
-raw_text = content_items[0].get("text", "") if content_items else ""
+first_item = content_items[0] if content_items and isinstance(content_items[0], dict) else {}
+raw_text = first_item.get("text", "")
 
 try:
     parsed = json.loads(raw_text)
     has_issues = parsed.get("has_issues", True)
     review_body = parsed.get("review", "No findings.")
-except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+except (json.JSONDecodeError, TypeError):
     # Default to flagging when response can't be parsed — never silently approve
     has_issues = True
     raw_text = raw_text or "unavailable"
