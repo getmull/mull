@@ -58,6 +58,11 @@ create policy "users can insert pages for their documents"
     )
   );
 
+-- UPDATE and DELETE on document_pages are intentionally not permitted via RLS.
+-- Pages are written once by the extraction pipeline and deleted by cascading
+-- from the parent document. If re-processing is ever needed, it will run via
+-- the service role key in a server-side API route, not the anon client.
+
 -- ── Highlights ─────────────────────────────────────────────────────────────────
 
 create table highlights (
@@ -121,7 +126,10 @@ create table ai_conversations (
   id           uuid primary key default gen_random_uuid(),
   document_id  uuid not null references documents(id) on delete cascade,
   user_id      uuid not null references auth.users(id) on delete cascade,
-  messages     jsonb not null default '[]',
+  -- Size guard: messages must stay under 64 KB serialised. Binary content
+  -- (e.g. page screenshots) must be stored in Supabase Storage with a URL
+  -- reference here — never as inline base64.
+  messages     jsonb not null default '[]' check (octet_length(messages::text) < 65536),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
@@ -182,6 +190,11 @@ create policy "users can manage their own document tags"
     exists (
       select 1 from documents d where d.id = document_id and d.user_id = auth.uid()
     )
+  )
+  with check (
+    exists (
+      select 1 from documents d where d.id = document_id and d.user_id = auth.uid()
+    )
   );
 
 -- ── Collections ────────────────────────────────────────────────────────────────
@@ -212,6 +225,11 @@ alter table collection_docs enable row level security;
 create policy "users can manage their own collection docs"
   on collection_docs for all
   using (
+    exists (
+      select 1 from collections c where c.id = collection_id and c.user_id = auth.uid()
+    )
+  )
+  with check (
     exists (
       select 1 from collections c where c.id = collection_id and c.user_id = auth.uid()
     )
