@@ -8,6 +8,7 @@ interface HighlightFixture {
   color: string
   page_ref: number
   position: Rect[] | Rect | null
+  notes?: { id: string; content: string }[]
 }
 
 const mockPage = {
@@ -28,6 +29,7 @@ jest.mock('pdfjs-dist', () => ({
 }))
 
 let highlightsFixture: HighlightFixture[] = []
+let aiEnabledFixture = false
 let fetchMock: jest.Mock
 
 beforeAll(() => {
@@ -43,6 +45,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   highlightsFixture = []
+  aiEnabledFixture = false
   mockPage.getViewport.mockClear()
   mockPage.getTextContent.mockClear()
   mockPage.render.mockClear()
@@ -52,6 +55,13 @@ beforeEach(() => {
     const u = String(url)
     if (u.includes('/signed-url')) {
       return jsonResponse({ url: 'https://signed.example/doc.pdf' })
+    }
+    if (u === '/api/ai/status') {
+      return jsonResponse({ configured: aiEnabledFixture, provider: aiEnabledFixture ? 'ollama' : null })
+    }
+    if (u.endsWith('/actions') && opts?.method === 'POST') {
+      const { action } = JSON.parse(opts.body as string)
+      return jsonResponse({ note: { id: 'note-1', content: `${action} response` } }, 201)
     }
     if (u === '/api/highlights' && opts?.method === 'POST') {
       const body = JSON.parse(opts.body as string)
@@ -251,5 +261,61 @@ describe('PDFViewer', () => {
     fireEvent.mouseMove(pageContainer, { clientX: 500, clientY: 700 })
 
     expect(screen.queryByText('Remove')).not.toBeInTheDocument()
+  })
+
+  it('hides highlight AI actions when no AI provider is configured', async () => {
+    aiEnabledFixture = false
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    await screen.findByText('Remove')
+
+    for (const label of ['Explain', 'Define', 'Simplify', 'Translate']) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument()
+    }
+  })
+
+  it('shows highlight AI actions when configured, and running one posts and displays the result', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Explain'))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/highlights/h1/actions',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ action: 'explain' }) })
+      )
+    )
+    expect(await screen.findByText('explain response')).toBeInTheDocument()
+  })
+
+  it('shows existing notes for a highlight on hover', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      {
+        id: 'h1',
+        text: 'target',
+        color: 'pink',
+        page_ref: 1,
+        position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+        notes: [{ id: 'note-1', content: 'Previously generated note' }],
+      },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+
+    expect(await screen.findByText('Previously generated note')).toBeInTheDocument()
   })
 })
