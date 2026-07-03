@@ -1,0 +1,17 @@
+**/node_modules
+**/.next
+**/.turbo
+.git
+.github
+**/*.log
+.env
+.env.*
+!.env.example
+**/coverage
+apps/web/e2e
+apps/web/test-results
+apps/web/playwright-report
+apps/extractor/.venv
+apps/extractor/__pycache__
+apps/extractor/**/__pycache__
+.DS_Store
