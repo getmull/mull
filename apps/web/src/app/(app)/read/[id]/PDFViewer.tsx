@@ -4,8 +4,11 @@ import 'pdfjs-dist/web/pdf_viewer.css'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { SelectionToolbar } from './SelectionToolbar'
+import { HighlightActionsPanel, type Action } from './HighlightActionsPanel'
 
 interface Rect { x: number; y: number; width: number; height: number }
+
+interface Note { id: string; content: string }
 
 interface Highlight {
   id: string
@@ -13,6 +16,7 @@ interface Highlight {
   color: string
   page_ref: number
   position: Rect[] | null
+  notes?: Note[]
 }
 
 interface SelectionState {
@@ -53,6 +57,8 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   const [selection, setSelection]   = useState<SelectionState | null>(null)
   const [hoveredId, setHoveredId]   = useState<string | null>(null)
   const [saving, setSaving]         = useState(false)
+  const [aiEnabled, setAiEnabled]   = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ highlightId: string; action: Action } | null>(null)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load PDF
@@ -98,6 +104,14 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
       })
       .catch(() => {})
   }, [documentId])
+
+  // AI features stay hidden unless a provider is configured server-side.
+  useEffect(() => {
+    fetch('/api/ai/status')
+      .then((r) => r.json())
+      .then(({ configured }) => setAiEnabled(Boolean(configured)))
+      .catch(() => {})
+  }, [])
 
   const renderPage = useCallback(async (doc: PDFDocumentProxy, pageNum: number, pageScale: number) => {
     const canvas      = canvasRef.current
@@ -232,6 +246,25 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     setHighlights((prev) => prev.filter((h) => h.id !== id))
   }
 
+  async function runHighlightAction(highlightId: string, action: Action) {
+    setPendingAction({ highlightId, action })
+    try {
+      const res = await fetch(`/api/highlights/${highlightId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      if (res.ok) {
+        const { note } = await res.json()
+        setHighlights((prev) =>
+          prev.map((h) => (h.id === highlightId ? { ...h, notes: [...(h.notes ?? []), note] } : h))
+        )
+      }
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
   function goTo(page: number) {
     setSelection(null)
     setCurrentPage(Math.max(1, Math.min(page, pdf?.numPages ?? pageCount)))
@@ -316,22 +349,27 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
         {/* Text layer on top for selection */}
         <div ref={textLayerRef} className="textLayer" style={{ zIndex: 2 }} />
 
-        {/* Floating delete button on highlight hover — positioned in the same
+        {/* Highlight actions panel on hover — positioned in the same
             percentage-of-container coordinate space as the overlays above,
             so it scrolls and resizes with the page instead of drifting. */}
         {hoveredHighlight?.position?.[0] && (
-          <button
-            onClick={() => deleteHighlight(hoveredHighlight.id)}
-            onMouseEnter={() => { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null } }}
-            onMouseLeave={() => setHoveredId(null)}
-            className="absolute z-50 bg-white border border-neutral-300 rounded shadow text-xs text-neutral-600 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors px-2 py-0.5"
+          <div
+            className="absolute z-50"
             style={{
               left: `${hoveredHighlight.position[0].x * 100}%`,
               top:  `calc(${hoveredHighlight.position[0].y * 100}% - 28px)`,
             }}
           >
-            Remove
-          </button>
+            <HighlightActionsPanel
+              notes={hoveredHighlight.notes ?? []}
+              aiEnabled={aiEnabled}
+              pendingAction={pendingAction?.highlightId === hoveredHighlight.id ? pendingAction.action : null}
+              onAction={(action) => runHighlightAction(hoveredHighlight.id, action)}
+              onRemove={() => deleteHighlight(hoveredHighlight.id)}
+              onMouseEnter={() => { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null } }}
+              onMouseLeave={() => setHoveredId(null)}
+            />
+          </div>
         )}
       </div>
 
