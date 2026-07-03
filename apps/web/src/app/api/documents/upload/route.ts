@@ -74,9 +74,13 @@ export async function POST(request: NextRequest) {
     .eq('id', doc.id)
 
   if (pages.length > 0) {
-    await supabase.from('document_pages').insert(
-      pages.map((p) => ({ document_id: doc.id, ...p }))
-    )
+    // Chunk inserts to stay under Supabase's ~1 MB REST body limit
+    const CHUNK = 100
+    for (let i = 0; i < pages.length; i += CHUNK) {
+      await supabase.from('document_pages').insert(
+        pages.slice(i, i + CHUNK).map((p) => ({ document_id: doc.id, ...p }))
+      )
+    }
   }
 
   return NextResponse.json({

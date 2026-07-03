@@ -34,6 +34,7 @@ export default async function ReadPage({ params }: { params: Promise<{ id: strin
       .from('documents')
       .update({ reading_state: 'reading' })
       .eq('id', id)
+      .eq('user_id', user.id)
   }
 
   return (
