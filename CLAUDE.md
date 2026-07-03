@@ -24,7 +24,7 @@ Every feature decision should answer: *Does this make reading and understanding 
 | PDF Rendering | PDF.js (browser-native, original layout view) |
 | PDF Text Extraction | `pdf-parse` (primary) + `pymupdf` Python sidecar (fallback) |
 | Article Parsing | `@mozilla/readability` |
-| AI | Claude API — model: `claude-sonnet-4-6` |
+| AI | Multi-provider via Vercel AI SDK — Anthropic, OpenAI, Ollama (local), or any OpenAI-compatible endpoint. Operator-selected via `AI_PROVIDER`; Anthropic default model `claude-sonnet-4-6` |
 | Listen | Web `SpeechSynthesis` API (V1) → ElevenLabs API (V1.1) |
 | Search | Postgres full-text search (V1) → pgvector (V1.1) |
 | Self-hosting | Docker Compose |
@@ -130,7 +130,7 @@ Context builder
 ├── User highlights relevant to query
 └── Prior AI conversation in this document
     ↓
-Claude API (claude-sonnet-4-6)
+Configured AI provider (Anthropic / OpenAI / Ollama / custom)
     ↓
 Response + citations
     ↓
@@ -167,8 +167,17 @@ SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_KEY=
 NEXT_PUBLIC_APP_URL=
 
-# Optional — AI features hidden if omitted, not broken
+# Optional — AI provider selection. Unset/incomplete = AI features hidden, not broken.
+AI_PROVIDER=            # anthropic | openai | ollama | custom
 ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=        # default: claude-sonnet-4-6
+OPENAI_API_KEY=
+OPENAI_MODEL=           # default: gpt-5.1
+OLLAMA_BASE_URL=        # default: http://localhost:11434/v1
+OLLAMA_MODEL=           # default: llama3.1
+AI_BASE_URL=            # custom OpenAI-compatible provider (Groq, Together, LM Studio, etc.)
+AI_API_KEY=
+AI_MODEL=
 
 # Optional — Listen falls back to browser voice if omitted
 ELEVENLABS_API_KEY=
@@ -184,7 +193,7 @@ AI enhances the experience — it never gates the core reading workflow. Mull mu
 **Graceful degradation:**
 | Missing config | Required behavior |
 |---|---|
-| No `ANTHROPIC_API_KEY` | Hide AI features in UI — app fully functional |
+| No AI provider configured (`AI_PROVIDER` unset or incomplete) | Hide AI features in UI — app fully functional |
 | No `ELEVENLABS_API_KEY` | Listen falls back to browser voice — shows which mode is active |
 | Scanned PDF (< 50 chars/page average) | Surface notice in UI — original PDF view always available |
 | Complex layout reflow failure | Fall back to original PDF view — never a blank screen |
