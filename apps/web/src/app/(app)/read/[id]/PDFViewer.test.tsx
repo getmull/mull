@@ -59,6 +59,9 @@ beforeEach(() => {
     if (u === '/api/ai/status') {
       return jsonResponse({ configured: aiEnabledFixture, provider: aiEnabledFixture ? 'ollama' : null })
     }
+    if (u.endsWith('/ask')) {
+      return jsonResponse({ messages: [] })
+    }
     if (u.endsWith('/actions') && opts?.method === 'POST') {
       const { action } = JSON.parse(opts.body as string)
       return jsonResponse({ note: { id: 'note-1', content: `${action} response` } }, 201)
@@ -317,5 +320,23 @@ describe('PDFViewer', () => {
     fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
 
     expect(await screen.findByText('Previously generated note')).toBeInTheDocument()
+  })
+
+  it('hides the Ask AI toggle when no AI provider is configured', async () => {
+    aiEnabledFixture = false
+    await renderAndWaitForLoad()
+
+    expect(screen.queryByText('Ask AI')).not.toBeInTheDocument()
+  })
+
+  it('opens and closes the Ask AI panel via the toggle button', async () => {
+    aiEnabledFixture = true
+    await renderAndWaitForLoad()
+
+    fireEvent.click(screen.getByText('Ask AI'))
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Close'))
+    expect(screen.queryByText('Ask a question about this document.')).not.toBeInTheDocument()
   })
 })

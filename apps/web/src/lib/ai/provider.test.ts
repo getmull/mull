@@ -57,7 +57,7 @@ describe('getAIModel', () => {
     expect(modelFactory).toHaveBeenCalledWith('gpt-5.1')
   })
 
-  it('resolves an Ollama model via the OpenAI-compatible adapter', () => {
+  it('resolves an Ollama model via the OpenAI-compatible adapter, forcing structured-output support', () => {
     mockGetConfig.mockReturnValue({
       provider: 'ollama',
       baseURL: 'http://localhost:11434/v1',
@@ -67,14 +67,16 @@ describe('getAIModel', () => {
     const modelFactory = mockModelFactory()
     mockCreateOpenAICompatible.mockReturnValue(modelFactory)
 
-    getAIModel()
+    const result = getAIModel()
 
     expect(mockCreateOpenAICompatible).toHaveBeenCalledWith({
       name: 'ollama',
       baseURL: 'http://localhost:11434/v1',
       apiKey: 'ollama',
+      supportsStructuredOutputs: true,
     })
     expect(modelFactory).toHaveBeenCalledWith('llama3.1')
+    expect(result).toEqual({ modelId: 'mock-model' })
   })
 
   it('resolves a custom model via the OpenAI-compatible adapter', () => {

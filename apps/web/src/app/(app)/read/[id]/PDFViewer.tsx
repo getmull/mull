@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { SelectionToolbar } from './SelectionToolbar'
 import { HighlightActionsPanel, type Action } from './HighlightActionsPanel'
+import { AskAIPanel } from './AskAIPanel'
 
 interface Rect { x: number; y: number; width: number; height: number }
 
@@ -59,6 +60,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   const [saving, setSaving]         = useState(false)
   const [aiEnabled, setAiEnabled]   = useState(false)
   const [pendingAction, setPendingAction] = useState<{ highlightId: string; action: Action } | null>(null)
+  const [askAIOpen, setAskAIOpen]   = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load PDF
@@ -311,6 +313,12 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           <button onClick={() => setScale((s) => Math.min(3, s + 0.2))}
             className="px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">+</button>
         </div>
+        {aiEnabled && (
+          <button onClick={() => setAskAIOpen((open) => !open)}
+            className="ml-4 px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">
+            Ask AI
+          </button>
+        )}
       </div>
 
       {/* Page */}
@@ -380,6 +388,14 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           y={selection.toolbarY}
           onColor={saveHighlight}
           onDismiss={() => { window.getSelection()?.removeAllRanges(); setSelection(null) }}
+        />
+      )}
+
+      {askAIOpen && aiEnabled && (
+        <AskAIPanel
+          documentId={documentId}
+          onCitationClick={goTo}
+          onClose={() => setAskAIOpen(false)}
         />
       )}
     </div>
