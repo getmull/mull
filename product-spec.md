@@ -82,7 +82,7 @@ Any saved document or article can be listened to. The feature is called **Listen
 
 ### 4. AI Layer
 
-All AI uses the Claude API (`claude-sonnet-4-6`). No API key = AI features hidden, not broken. The app must be fully usable without AI.
+AI is multi-provider (Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint), operator-selected via `AI_PROVIDER`. No provider configured = AI features hidden, not broken. The app must be fully usable without AI.
 
 **On Upload (automatic):**
 - TL;DR summary (3–5 sentences)
