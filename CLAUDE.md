@@ -81,7 +81,7 @@ Every feature ships with tests. No exceptions.
 
 **Integration tests (Jest):**
 - ContentProvider implementations (PDFProvider, ArticleProvider)
-- AI layer (mocked Claude API responses)
+- AI layer (mocked AI provider responses)
 - Highlight, bookmark, search, and reading session flows
 
 **End-to-end tests (Playwright):**

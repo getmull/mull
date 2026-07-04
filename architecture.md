@@ -30,13 +30,13 @@ Core services (consume any ContentProvider):
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Frontend | Next.js 14 + TypeScript | App Router, RSC, familiar stack |
+| Frontend | Next.js 16 + TypeScript | App Router, RSC, familiar stack |
 | Auth + DB | Supabase | Auth, Postgres, RLS, Realtime |
 | File Storage | Supabase Storage | PDFs, images, article snapshots |
 | PDF Rendering | PDF.js | Browser-native original layout view |
 | PDF Extraction | pdf-parse (primary) + pymupdf sidecar | Handles most PDFs; sidecar for complex layouts |
 | Article Parsing | @mozilla/readability | Same engine as Firefox Reader Mode |
-| AI | Claude API (claude-sonnet-4-6) | Best for document comprehension + citations |
+| AI | Multi-provider via Vercel AI SDK — Anthropic, OpenAI, Ollama (local), or any OpenAI-compatible endpoint | Self-hosters bring their own key or run fully local; operator-selected via `AI_PROVIDER` |
 | Cross-doc AI | pgvector embeddings | Semantic search across entire library |
 | Listen | Web SpeechSynthesis (V1) → ElevenLabs (V1.1) | Zero-dependency free; BYOK premium |
 | Search | Postgres FTS (V1) → pgvector (V1.1) | Ship fast, upgrade to semantic post-launch |
@@ -55,7 +55,7 @@ Context builder
 ├── Prior AI conversation in this document
 └── [V1.1] Cross-library embeddings
     ↓
-Claude API (claude-sonnet-4-6)
+Configured AI provider (Anthropic / OpenAI / Ollama / custom)
     ↓
 Response + citations
     ↓
@@ -70,7 +70,7 @@ Citation resolver → links back to exact source location
 
 | Missing config | Behavior |
 |---|---|
-| No `ANTHROPIC_API_KEY` | AI features hidden in UI — app fully functional |
+| No AI provider configured (`AI_PROVIDER` unset or incomplete) | AI features hidden in UI — app fully functional |
 | No `ELEVENLABS_API_KEY` | Listen falls back to browser voice — shows which mode is active |
 | Scanned PDF (low text yield) | Surfaces notice — original view still available |
 | Complex layout reflow failure | Falls back to original PDF view — never a blank screen |
