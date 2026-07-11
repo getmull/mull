@@ -142,18 +142,19 @@ Citation resolver → links to exact source location (page # / paragraph anchor)
 ## Database Schema
 
 ```sql
-users            -- Supabase Auth managed
-documents        -- id, user_id, type, title, source_url, storage_path, created_at
-document_pages   -- id, document_id, page_number, raw_text, embedding (vector, V1.1)
-highlights       -- id, document_id, user_id, text, color, page_ref, created_at
-bookmarks        -- id, document_id, user_id, page_number, label, created_at
-notes            -- id, highlight_id, user_id, content, created_at
-ai_conversations -- id, document_id, user_id, messages (jsonb), created_at
-reading_sessions -- id, document_id, user_id, started_at, ended_at, progress_pct
-tags             -- id, user_id, name
-document_tags    -- document_id, tag_id
-collections      -- id, user_id, name
-collection_docs  -- collection_id, document_id
+users                    -- Supabase Auth managed
+documents                -- id, user_id, type, title, source_url, storage_path, created_at
+document_pages           -- id, document_id, page_number, raw_text, embedding (vector, V1.1)
+highlights               -- id, document_id, user_id, text, color, page_ref, created_at
+bookmarks                -- id, document_id, user_id, page_number, label, created_at
+notes                    -- id, highlight_id, user_id, content, created_at
+ai_conversations         -- id, document_id, user_id, messages (jsonb), created_at
+highlight_conversations  -- id, highlight_id, user_id, messages (jsonb), created_at, updated_at
+reading_sessions         -- id, document_id, user_id, started_at, ended_at, progress_pct
+tags                     -- id, user_id, name
+document_tags            -- document_id, tag_id
+collections              -- id, user_id, name
+collection_docs          -- collection_id, document_id
 ```
 
 ---
@@ -199,11 +200,13 @@ AI enhances the experience — it never gates the core reading workflow. Mull mu
 | Complex layout reflow failure | Fall back to original PDF view — never a blank screen |
 
 ### Cite-Back Standard
-Every AI answer that references source material must include a citation linking to the exact source location:
+Every AI answer that draws on source material beyond what's already visible on screen must include a citation linking to the exact source location:
 - PDFs: page number
 - Articles: paragraph anchor
 
-This is enforced at the architecture level. Do not ship an AI response without a citation.
+This is enforced at the architecture level (Ask AI uses a schema-validated `citations` field — an uncited response fails validation rather than shipping). Do not ship an Ask AI response without a citation.
+
+**Exception — per-highlight Chat**: answers scoped to a single highlighted passage don't require a separate citation. The passage is already anchored to a known page, shown in the Chat panel header — that anchor *is* the citation. This exception applies only to Chat's single-passage scope; if Chat ever expands to draw on content beyond its own highlight (e.g. surrounding pages, other highlights), it must pick up the same schema-validated citation enforcement Ask AI uses.
 
 ### Code Quality
 - TypeScript strict mode. No `any` without a comment explaining why.
@@ -218,7 +221,8 @@ This is enforced at the architecture level. Do not ship an AI response without a
 
 - The audio reading feature is **Listen** — not TTS, not Listen Mode, not Read Aloud. In UI, code, and docs.
 - Reading states are **Unread, Reading, Library, Archived** — not "Done," not "Complete." Library = reference documents.
-- The AI Q&A feature on a document is **Ask AI** — not Chat, not Q&A.
+- The AI Q&A feature on a document (whole-document scope) is **Ask AI** — not Chat, not Q&A.
+- The AI follow-up feature scoped to a single highlighted passage is **Chat** — distinct from document-level Ask AI. Explain/Define/Simplify/Translate seed a Chat thread; freeform follow-up questions continue it.
 - The reopen recap is **Reading Memory** — not Summary, not Recap.
 - Highlight actions: **Explain / Define / Simplify / Translate** — these exact words.
 
@@ -230,7 +234,7 @@ This is enforced at the architecture level. Do not ship an AI response without a
 - Page navigation, zoom, scroll position memory, reading progress
 - Bookmarks (named page markers inside documents)
 - Web article saving via bookmarklet (`@mozilla/readability`)
-- AI: auto-summary on upload, Ask AI (with source citations), highlight → explain/define/simplify/translate
+- AI: auto-summary on upload, Ask AI (with source citations), highlight → explain/define/simplify/translate, highlight → Chat (freeform follow-up, seeded by the actions above or opened directly)
 - Highlights with colors (yellow, green, blue, pink) + inline notes
 - Tags, collections, reading queue (Unread → Reading → Library → Archived)
 - Reading Memory (recap when reopening a document after a gap)

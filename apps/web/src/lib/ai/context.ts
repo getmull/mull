@@ -47,3 +47,22 @@ function truncateToBudget(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text
   return `${text.slice(0, maxChars)}\n[...document truncated...]`
 }
+
+// Single page of surrounding context for a highlight chat — much smaller
+// budget than MAX_CONTEXT_CHARS above, since it's always exactly one page,
+// not a whole document, and there's no multi-page valid-pages list to build.
+const MAX_HIGHLIGHT_PAGE_CONTEXT_CHARS = 4000
+
+export async function buildHighlightPageContext(documentId: string, pageRef: number | null): Promise<string> {
+  if (pageRef === null) return ''
+  const supabase = await createClient()
+
+  const { data: page } = await supabase
+    .from('document_pages')
+    .select('raw_text')
+    .eq('document_id', documentId)
+    .eq('page_number', pageRef)
+    .single()
+
+  return truncateToBudget(page?.raw_text ?? '', MAX_HIGHLIGHT_PAGE_CONTEXT_CHARS)
+}

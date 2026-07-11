@@ -18,7 +18,7 @@ Before any roadmap items, nail these four things. Everything else depends on the
 - PDF upload, reflow mode, original view, bookmarks
 - Bookmarklet article saving
 - Listen (browser voice)
-- AI: auto-summary, Ask AI (with citations), highlight-explain
+- AI: auto-summary, Ask AI (with citations), highlight-explain, highlight-chat (freeform follow-up)
 - Highlights, annotations, tags, collections
 - Reading Memory (reopen recap)
 - Reading queue: Unread → Reading → Library → Archived

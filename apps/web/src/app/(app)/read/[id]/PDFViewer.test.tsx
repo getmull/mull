@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { PDFViewer } from './PDFViewer'
 
 interface Rect { x: number; y: number; width: number; height: number }
@@ -62,9 +62,28 @@ beforeEach(() => {
     if (u.endsWith('/ask')) {
       return jsonResponse({ messages: [] })
     }
-    if (u.endsWith('/actions') && opts?.method === 'POST') {
-      const { action } = JSON.parse(opts.body as string)
-      return jsonResponse({ note: { id: 'note-1', content: `${action} response` } }, 201)
+    if (u.endsWith('/chat') && opts?.method === 'POST') {
+      const body = JSON.parse(opts.body as string)
+      if (body.action) {
+        return jsonResponse(
+          { userMessage: { role: 'user', content: `${body.action} seed` }, message: { role: 'assistant', content: `${body.action} response` } },
+          201
+        )
+      }
+      return jsonResponse(
+        { userMessage: { role: 'user', content: body.message }, message: { role: 'assistant', content: `Re: ${body.message}` } },
+        201
+      )
+    }
+    if (u.endsWith('/chat')) {
+      return jsonResponse({ messages: [] })
+    }
+    if (u.endsWith('/notes') && opts?.method === 'POST') {
+      const { content } = JSON.parse(opts.body as string)
+      return jsonResponse({ note: { id: 'manual-note-1', content } }, 201)
+    }
+    if (u.startsWith('/api/notes/') && opts?.method === 'DELETE') {
+      return jsonResponse({}, 204)
     }
     if (u === '/api/highlights' && opts?.method === 'POST') {
       const body = JSON.parse(opts.body as string)
@@ -282,7 +301,7 @@ describe('PDFViewer', () => {
     }
   })
 
-  it('shows highlight AI actions when configured, and running one posts and displays the result', async () => {
+  it('clicking a highlight action opens the chat panel and sends it as a seed turn', async () => {
     aiEnabledFixture = true
     highlightsFixture = [
       { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
@@ -293,13 +312,109 @@ describe('PDFViewer', () => {
     fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
     fireEvent.click(await screen.findByText('Explain'))
 
+    expect(await screen.findByText('Chat about this highlight — p. 1')).toBeInTheDocument()
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/highlights/h1/actions',
+        '/api/highlights/h1/chat',
         expect.objectContaining({ method: 'POST', body: JSON.stringify({ action: 'explain' }) })
       )
     )
+    expect(await screen.findByText('explain seed')).toBeInTheDocument()
     expect(await screen.findByText('explain response')).toBeInTheDocument()
+  })
+
+  it('clicking a second action on the same open highlight sends another turn without reloading history', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Explain'))
+    await screen.findByText('explain response')
+
+    const chatGetCallsAfterFirst = fetchMock.mock.calls.filter(([u, opts]) => String(u).endsWith('/chat') && !opts?.method).length
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Translate'))
+
+    expect(await screen.findByText('translate response')).toBeInTheDocument()
+    const chatGetCallsAfterSecond = fetchMock.mock.calls.filter(([u, opts]) => String(u).endsWith('/chat') && !opts?.method).length
+    expect(chatGetCallsAfterSecond).toBe(chatGetCallsAfterFirst)
+  })
+
+  it('clicking an action on a different highlight swaps the chat panel and reloads history', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      { id: 'h1', text: 'first', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+      { id: 'h2', text: 'second', color: 'blue', page_ref: 1, position: [{ x: 0.5, y: 0.5, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Explain'))
+    await screen.findByText('explain response')
+
+    fireEvent.mouseMove(pageContainer, { clientX: 420, clientY: 420 })
+    fireEvent.click(await screen.findByText('Define'))
+
+    expect(await screen.findByText('define response')).toBeInTheDocument()
+    expect(screen.queryByText('explain response')).not.toBeInTheDocument()
+  })
+
+  it('opens an empty chat panel via the "Chat" button, without sending anything', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Chat'))
+
+    expect(await screen.findByText('Chat about this highlight — p. 1')).toBeInTheDocument()
+    expect(await screen.findByText('Ask a question about this highlight.')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([u, opts]) => String(u).endsWith('/chat') && opts?.method === 'POST')).toBe(false)
+  })
+
+  it('opening Ask AI closes an open highlight chat panel, and vice versa', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Chat'))
+    await screen.findByText('Chat about this highlight — p. 1')
+
+    fireEvent.click(screen.getByText('Ask AI'))
+
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument()
+    expect(screen.queryByText('Chat about this highlight — p. 1')).not.toBeInTheDocument()
+  })
+
+  it('deleting a highlight closes its open chat panel', async () => {
+    aiEnabledFixture = true
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Chat'))
+    await screen.findByText('Chat about this highlight — p. 1')
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('Remove'))
+
+    await waitFor(() => expect(screen.queryByText('Chat about this highlight — p. 1')).not.toBeInTheDocument())
   })
 
   it('shows existing notes for a highlight on hover', async () => {
@@ -320,6 +435,173 @@ describe('PDFViewer', () => {
     fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
 
     expect(await screen.findByText('Previously generated note')).toBeInTheDocument()
+  })
+
+  it('lets the user add a manual note to a highlight, independent of AI', async () => {
+    aiEnabledFixture = false
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('+ Note'))
+    const input = await screen.findByPlaceholderText('Add a note…')
+    fireEvent.change(input, { target: { value: 'my thought on this' } })
+    fireEvent.click(screen.getByText('Add note'))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/highlights/h1/notes',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ content: 'my thought on this' }) })
+      )
+    )
+    expect(await screen.findByText('my thought on this')).toBeInTheDocument()
+  })
+
+  it('pins the note composer open once opened, surviving mouse movement away from the highlight entirely', async () => {
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('+ Note'))
+    await screen.findByPlaceholderText('Add a note…')
+
+    jest.useFakeTimers()
+    try {
+      // Mouse leaves the highlight entirely and the container itself — this
+      // used to be exactly what the 400ms hover-hide timer reacted to.
+      fireEvent.mouseMove(pageContainer, { clientX: 500, clientY: 700 })
+      fireEvent.mouseLeave(pageContainer)
+      act(() => { jest.advanceTimersByTime(5000) })
+    } finally {
+      jest.useRealTimers()
+    }
+
+    expect(screen.getByPlaceholderText('Add a note…')).toBeInTheDocument()
+  })
+
+  it('closes the note composer via its Cancel button, which also lets hover-hide resume', async () => {
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    fireEvent.click(await screen.findByText('+ Note'))
+    await screen.findByPlaceholderText('Add a note…')
+
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByPlaceholderText('Add a note…')).not.toBeInTheDocument()
+  })
+
+  it('does not hide the panel when the mouse reaches it, even without focus (no dead zone between highlight and panel)', async () => {
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    const noteButton = await screen.findByText('+ Note')
+
+    jest.useFakeTimers()
+    try {
+      // Mouse leaves the highlight's own rect (arming the hide timer)
+      // partway through actually moving toward the panel...
+      fireEvent.mouseMove(pageContainer, { clientX: 500, clientY: 700 })
+      // ...then arrives at the panel itself — this alone, with no focus at
+      // all, must cancel that timer immediately.
+      fireEvent.mouseOver(noteButton)
+      act(() => { jest.advanceTimersByTime(1000) })
+    } finally {
+      jest.useRealTimers()
+    }
+
+    expect(screen.getByText('+ Note')).toBeInTheDocument()
+  })
+
+  it('does not arm a fresh hide timer for mousemoves that merely continue within the panel', async () => {
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    const noteButton = await screen.findByText('+ Note')
+
+    jest.useFakeTimers()
+    try {
+      // Arrive at the panel (clears any pending timer)...
+      fireEvent.mouseOver(noteButton)
+      // ...then keep moving *within* the panel, same as a real cursor
+      // drifting while approaching a button. Before stopPropagation was
+      // added, each of these bubbled up to the container's own handler —
+      // which has no notion of the panel's existence — and silently
+      // re-armed a fresh hide timer that nothing then cancelled, since
+      // onMouseEnter only fires once, on the initial entry.
+      for (let i = 0; i < 5; i++) {
+        fireEvent.mouseMove(noteButton, { clientX: 500 + i, clientY: 700 + i })
+        act(() => { jest.advanceTimersByTime(150) })
+      }
+      act(() => { jest.advanceTimersByTime(1000) })
+    } finally {
+      jest.useRealTimers()
+    }
+
+    expect(screen.getByText('+ Note')).toBeInTheDocument()
+  })
+
+  it('hides the panel after the hover-hide delay when no note is pinned open', async () => {
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    await screen.findByText('+ Note')
+
+    jest.useFakeTimers()
+    try {
+      fireEvent.mouseMove(pageContainer, { clientX: 500, clientY: 700 })
+      act(() => { jest.advanceTimersByTime(1000) })
+    } finally {
+      jest.useRealTimers()
+    }
+
+    expect(screen.queryByText('+ Note')).not.toBeInTheDocument()
+  })
+
+  it('lets the user delete a note from a highlight', async () => {
+    highlightsFixture = [
+      {
+        id: 'h1',
+        text: 'target',
+        color: 'pink',
+        page_ref: 1,
+        position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+        notes: [{ id: 'note-1', content: 'a note to remove' }],
+      },
+    ]
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    await screen.findByText('a note to remove')
+    fireEvent.click(screen.getByLabelText('Delete note'))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/notes/note-1', expect.objectContaining({ method: 'DELETE' }))
+    )
+    await waitFor(() => expect(screen.queryByText('a note to remove')).not.toBeInTheDocument())
   })
 
   it('hides the Ask AI toggle when no AI provider is configured', async () => {

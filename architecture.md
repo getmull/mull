@@ -62,7 +62,22 @@ Response + citations
 Citation resolver → links back to exact source location
 ```
 
-**Cite-back standard:** Every AI answer that references source material must include a citation linking to the exact location (page number for PDFs, paragraph anchor for articles). This is enforced at the architecture level, not left to prompt engineering.
+**Cite-back standard:** Every Ask AI answer that draws on source material beyond what's already visible on screen must include a citation linking to the exact location (page number for PDFs, paragraph anchor for articles), enforced via a schema-validated response — not left to prompt engineering.
+
+**Per-highlight Chat** is a narrower, separate pipeline — not a smaller version of the Ask AI context builder above:
+
+```
+Seed action (Explain/Define/Simplify/Translate) or freeform question
+    ↓
+Context: the highlighted passage + the single page it lives on + this
+highlight's own conversation history (highlight_conversations, not
+ai_conversations)
+    ↓
+Configured AI provider
+    ↓
+Response — no separate citation: the passage is already anchored to a
+known page, shown in the Chat panel itself
+```
 
 ---
 
@@ -80,18 +95,19 @@ Citation resolver → links back to exact source location
 ## Database Schema (Core Tables)
 
 ```sql
-users           — Supabase Auth managed
-documents       — id, user_id, type, title, source_url, storage_path, created_at
-document_pages  — id, document_id, page_number, raw_text, embedding (vector)
-highlights      — id, document_id, user_id, text, color, page_ref, created_at
-bookmarks       — id, document_id, user_id, page_number, label, created_at
-notes           — id, highlight_id, user_id, content, created_at
-ai_conversations— id, document_id, user_id, messages (jsonb), created_at
-reading_sessions— id, document_id, user_id, started_at, ended_at, progress_pct
-tags            — id, user_id, name
-document_tags   — document_id, tag_id
-collections     — id, user_id, name
-collection_docs — collection_id, document_id
+users                    — Supabase Auth managed
+documents                — id, user_id, type, title, source_url, storage_path, created_at
+document_pages           — id, document_id, page_number, raw_text, embedding (vector)
+highlights               — id, document_id, user_id, text, color, page_ref, created_at
+bookmarks                — id, document_id, user_id, page_number, label, created_at
+notes                    — id, highlight_id, user_id, content, created_at
+ai_conversations         — id, document_id, user_id, messages (jsonb), created_at
+highlight_conversations  — id, highlight_id, user_id, messages (jsonb), created_at, updated_at
+reading_sessions         — id, document_id, user_id, started_at, ended_at, progress_pct
+tags                     — id, user_id, name
+document_tags            — document_id, tag_id
+collections              — id, user_id, name
+collection_docs          — collection_id, document_id
 ```
 
 ---

@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { buildDocumentContext } from './context'
+import { buildDocumentContext, buildHighlightPageContext } from './context'
 import { createClient } from '@/lib/supabase/server'
 import { mockSupabaseClient } from '@/test-utils/supabase'
 
@@ -79,5 +79,45 @@ describe('buildDocumentContext', () => {
     const context = await buildDocumentContext('doc-1', 'user-1')
 
     expect(context.highlightsText).toBe('- (page ?) "orphan highlight"')
+  })
+})
+
+describe('buildHighlightPageContext', () => {
+  it('returns the raw text of the matching page', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: { raw_text: 'Page four text' }, error: null }] })
+    )
+
+    const text = await buildHighlightPageContext('doc-1', 4)
+
+    expect(text).toBe('Page four text')
+  })
+
+  it('returns an empty string when pageRef is null, without querying', async () => {
+    mockCreateClient.mockClear()
+
+    const text = await buildHighlightPageContext('doc-1', null)
+
+    expect(text).toBe('')
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it('returns an empty string when no matching page row exists', async () => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [{ data: null, error: null }] }))
+
+    const text = await buildHighlightPageContext('doc-1', 4)
+
+    expect(text).toBe('')
+  })
+
+  it('truncates page text past the character budget', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: { raw_text: 'x'.repeat(5000) }, error: null }] })
+    )
+
+    const text = await buildHighlightPageContext('doc-1', 4)
+
+    expect(text.length).toBeLessThan(5000)
+    expect(text).toMatch(/\[\.\.\.document truncated\.\.\.\]$/)
   })
 })
