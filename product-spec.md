@@ -92,9 +92,9 @@ AI is multi-provider (Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoi
 **While Reading:**
 - **Ask AI** — Q&A with citations back to source (page # for PDFs, paragraph anchor for articles)
 - **Highlight → Explain** — select text, choose: Explain / Define / Simplify / Translate
-- **Highlight → Ask** — free-form prompt against the selected passage
+- **Highlight → Chat** — free-form follow-up against the selected passage; also where the four canned actions above land, as the opening turn of the thread
 
-**Cite-back standard:** Every AI answer links to the exact source location. Non-negotiable.
+**Cite-back standard:** Every Ask AI answer links to the exact source location. Non-negotiable. Highlight → Chat is exempt — the passage is already anchored to its page, visible in the panel itself.
 
 ---
 

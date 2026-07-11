@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { SelectionToolbar } from './SelectionToolbar'
 import { HighlightActionsPanel, type Action } from './HighlightActionsPanel'
+import { HighlightChatPanel } from './HighlightChatPanel'
 import { AskAIPanel } from './AskAIPanel'
 
 interface Rect { x: number; y: number; width: number; height: number }
@@ -59,8 +60,11 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   const [hoveredId, setHoveredId]   = useState<string | null>(null)
   const [saving, setSaving]         = useState(false)
   const [aiEnabled, setAiEnabled]   = useState(false)
-  const [pendingAction, setPendingAction] = useState<{ highlightId: string; action: Action } | null>(null)
+  const [addingNote, setAddingNote] = useState(false)
+  const [pinnedNoteId, setPinnedNoteId] = useState<string | null>(null)
   const [askAIOpen, setAskAIOpen]   = useState(false)
+  const [chatHighlightId, setChatHighlightId] = useState<string | null>(null)
+  const [pendingSeed, setPendingSeed] = useState<{ highlightId: string; action: Action; token: number } | null>(null)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load PDF
@@ -207,16 +211,17 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     if (hit) {
       if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
       setHoveredId(hit.id)
-    } else {
-      // Delay clearing so the mouse can travel to the Remove button
+    } else if (pinnedNoteId === null) {
+      // Delay clearing so the mouse can travel to the panel. Skipped
+      // entirely while a note is pinned open — that's dismissed explicitly.
       if (!hoverTimer.current) {
         hoverTimer.current = setTimeout(() => {
           setHoveredId(null)
           hoverTimer.current = null
-        }, 400)
+        }, 600)
       }
     }
-  }, [highlights, currentPage])
+  }, [highlights, currentPage, pinnedNoteId])
 
   async function saveHighlight(color: string) {
     if (!selection || saving) return
@@ -244,31 +249,76 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
 
   async function deleteHighlight(id: string) {
     setHoveredId(null)
+    setPinnedNoteId((prev) => (prev === id ? null : prev))
+    setChatHighlightId((prev) => (prev === id ? null : prev))
     await fetch(`/api/highlights/${id}`, { method: 'DELETE' })
     setHighlights((prev) => prev.filter((h) => h.id !== id))
   }
 
-  async function runHighlightAction(highlightId: string, action: Action) {
-    setPendingAction({ highlightId, action })
+  // Opens (or switches to) a highlight's chat panel and sends `action` as a
+  // new seed turn. Works uniformly whether the panel is already open for
+  // this highlight (stays mounted, the new seed just flows in as a prop
+  // update) or a different one (key={chatHighlightId} forces a remount so
+  // history reloads fresh, then the same seed applies once that resolves).
+  function openHighlightChat(highlightId: string, action: Action) {
+    setAskAIOpen(false)
+    setChatHighlightId(highlightId)
+    setPendingSeed((prev) => ({ highlightId, action, token: (prev?.token ?? 0) + 1 }))
+  }
+
+  // Opens (or switches to) a highlight's chat panel without sending
+  // anything — for continuing an existing conversation, or starting a
+  // freeform one, without re-triggering one of the four canned actions.
+  function openHighlightChatOnly(highlightId: string) {
+    setAskAIOpen(false)
+    setChatHighlightId(highlightId)
+  }
+
+  function toggleAskAI() {
+    setChatHighlightId(null)
+    setAskAIOpen((open) => !open)
+  }
+
+  async function addNote(highlightId: string, content: string) {
+    setAddingNote(true)
     try {
-      const res = await fetch(`/api/highlights/${highlightId}/actions`, {
+      const res = await fetch(`/api/highlights/${highlightId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ content }),
       })
       if (res.ok) {
         const { note } = await res.json()
         setHighlights((prev) =>
           prev.map((h) => (h.id === highlightId ? { ...h, notes: [...(h.notes ?? []), note] } : h))
         )
+        setPinnedNoteId(null)
       }
     } finally {
-      setPendingAction(null)
+      setAddingNote(false)
     }
+  }
+
+  function openNoteComposer(highlightId: string) {
+    setPinnedNoteId(highlightId)
+  }
+
+  function closeNoteComposer() {
+    setPinnedNoteId(null)
+  }
+
+  async function deleteNote(highlightId: string, noteId: string) {
+    await fetch(`/api/notes/${noteId}`, { method: 'DELETE' })
+    setHighlights((prev) =>
+      prev.map((h) =>
+        h.id === highlightId ? { ...h, notes: (h.notes ?? []).filter((n) => n.id !== noteId) } : h
+      )
+    )
   }
 
   function goTo(page: number) {
     setSelection(null)
+    setPinnedNoteId(null)
     setCurrentPage(Math.max(1, Math.min(page, pdf?.numPages ?? pageCount)))
   }
 
@@ -285,7 +335,10 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
 
   const totalPages      = pdf?.numPages ?? pageCount
   const pageHighlights  = highlights.filter((h) => h.page_ref === currentPage)
-  const hoveredHighlight = pageHighlights.find((h) => h.id === hoveredId)
+  // A pinned note composer takes priority and stays visible regardless of
+  // where the mouse currently is — only its own close button dismisses it.
+  const activeHighlight =
+    pageHighlights.find((h) => h.id === pinnedNoteId) ?? pageHighlights.find((h) => h.id === hoveredId)
 
   return (
     <div className="flex flex-col items-center gap-4 pb-12 bg-neutral-100 min-h-screen">
@@ -314,7 +367,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
             className="px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">+</button>
         </div>
         {aiEnabled && (
-          <button onClick={() => setAskAIOpen((open) => !open)}
+          <button onClick={toggleAskAI}
             className="ml-4 px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">
             Ask AI
           </button>
@@ -329,8 +382,11 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => {
-          if (!hoverTimer.current) {
-            hoverTimer.current = setTimeout(() => { setHoveredId(null); hoverTimer.current = null }, 400)
+          if (!hoverTimer.current && pinnedNoteId === null) {
+            hoverTimer.current = setTimeout(() => {
+              setHoveredId(null)
+              hoverTimer.current = null
+            }, 600)
           }
         }}
       >
@@ -357,28 +413,81 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
         {/* Text layer on top for selection */}
         <div ref={textLayerRef} className="textLayer" style={{ zIndex: 2 }} />
 
-        {/* Highlight actions panel on hover — positioned in the same
-            percentage-of-container coordinate space as the overlays above,
-            so it scrolls and resizes with the page instead of drifting. */}
-        {hoveredHighlight?.position?.[0] && (
-          <div
-            className="absolute z-50"
-            style={{
-              left: `${hoveredHighlight.position[0].x * 100}%`,
-              top:  `calc(${hoveredHighlight.position[0].y * 100}% - 28px)`,
-            }}
-          >
-            <HighlightActionsPanel
-              notes={hoveredHighlight.notes ?? []}
-              aiEnabled={aiEnabled}
-              pendingAction={pendingAction?.highlightId === hoveredHighlight.id ? pendingAction.action : null}
-              onAction={(action) => runHighlightAction(hoveredHighlight.id, action)}
-              onRemove={() => deleteHighlight(hoveredHighlight.id)}
+        {/* Highlight actions panel on hover — positioned below the last line
+            of the highlight (not above it) so it never covers the text
+            being annotated, in the same percentage-of-container coordinate
+            space as the overlays above, so it scrolls and resizes with the
+            page instead of drifting.
+
+            The wrapper's own hit area starts with zero gap against the
+            highlight (padding-top absorbs the visual breathing room instead
+            of a real gap) and carries its own onMouseEnter/onMouseLeave —
+            without this, the few pixels between the highlight's bottom edge
+            and the panel's visible box are a dead zone with no active
+            protection, and the mouse crossing it (to reach the panel at all)
+            can outlast the hide timer armed the instant it left the
+            highlight, closing the panel before the cursor ever arrives.
+
+            Writing a note is pinned open via pinnedNoteId instead of relying
+            on hover/focus — hover is fine for glanceable stuff (AI actions,
+            reading existing notes) but a text input needs to survive the
+            mouse moving away entirely, dismissed only by its own close
+            button (see HighlightActionsPanel). */}
+        {activeHighlight?.position?.length ? (() => {
+          const rects = activeHighlight.position!
+          // Centered under the highlight's full span (not just anchored to
+          // the last rect) and clamped to stay on the page — this minimizes
+          // the worst-case distance from wherever along the highlight the
+          // cursor actually is to the panel below it. Anchoring to one edge
+          // meant a highlight hovered near its far end (or a multi-line
+          // selection whose last line starts elsewhere) could leave the
+          // panel well off to the side, turning "move down" into "move down
+          // and sideways" — easy to lose within the hover-hide grace window.
+          const minX   = Math.min(...rects.map((r) => r.x))
+          const maxX   = Math.max(...rects.map((r) => r.x + r.width))
+          const bottom = Math.max(...rects.map((r) => r.y + r.height))
+          const panelWidthFraction = pageSize.width ? 288 / pageSize.width : 0
+          const centered = (minX + maxX) / 2 - panelWidthFraction / 2
+          const left = Math.max(0, Math.min(centered, 1 - panelWidthFraction))
+          const isPinned = pinnedNoteId === activeHighlight.id
+          return (
+            <div
+              className="absolute z-50 pt-2"
+              style={{
+                left: `${left * 100}%`,
+                top:  `${bottom * 100}%`,
+              }}
               onMouseEnter={() => { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null } }}
-              onMouseLeave={() => setHoveredId(null)}
-            />
-          </div>
-        )}
+              onMouseLeave={() => { if (!isPinned) setHoveredId(null) }}
+              onMouseMove={(e) => {
+                // Without this, every mousemove while the cursor is still
+                // inside the panel (e.g. traveling toward a button) bubbles
+                // up to the container's own handleMouseMove, which has no
+                // idea the panel exists — it just sees "not over the
+                // highlight" and arms a fresh hide timer that onMouseEnter
+                // (fired once, on entry only) never gets a chance to cancel.
+                e.stopPropagation()
+                if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
+              }}
+            >
+              <HighlightActionsPanel
+                notes={activeHighlight.notes ?? []}
+                aiEnabled={aiEnabled}
+                addingNote={addingNote}
+                composingNote={isPinned}
+                onAction={(action) => openHighlightChat(activeHighlight.id, action)}
+                onOpenChat={() => openHighlightChatOnly(activeHighlight.id)}
+                onOpenNoteComposer={() => openNoteComposer(activeHighlight.id)}
+                onCloseNoteComposer={closeNoteComposer}
+                onAddNote={(content) => addNote(activeHighlight.id, content)}
+                onDeleteNote={(noteId) => deleteNote(activeHighlight.id, noteId)}
+                onRemove={() => deleteHighlight(activeHighlight.id)}
+                onMouseEnter={() => { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null } }}
+                onMouseLeave={() => { if (!isPinned) setHoveredId(null) }}
+              />
+            </div>
+          )
+        })() : null}
       </div>
 
       {/* Selection toolbar */}
@@ -396,6 +505,21 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           documentId={documentId}
           onCitationClick={goTo}
           onClose={() => setAskAIOpen(false)}
+        />
+      )}
+
+      {chatHighlightId && aiEnabled && (
+        <HighlightChatPanel
+          key={chatHighlightId}
+          highlightId={chatHighlightId}
+          pageRef={highlights.find((h) => h.id === chatHighlightId)?.page_ref ?? null}
+          pendingSeed={
+            pendingSeed?.highlightId === chatHighlightId
+              ? { action: pendingSeed.action, token: pendingSeed.token }
+              : null
+          }
+          onSeedHandled={() => setPendingSeed(null)}
+          onClose={() => setChatHighlightId(null)}
         />
       )}
     </div>

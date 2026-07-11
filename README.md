@@ -14,7 +14,7 @@ Self-host it or use our cloud.
 
 - **PDF reader** — upload, extract text, reflow or original layout, zoom, bookmarks, reading progress
 - **Article saving** — one-click bookmarklet using `@mozilla/readability` (Firefox Reader Mode engine)
-- **AI layer** — auto-summary on upload, Ask AI with source citations, highlight → explain/define/simplify/translate
+- **AI layer** — auto-summary on upload, Ask AI with source citations, highlight → explain/define/simplify/translate, highlight → Chat (freeform follow-up)
 - **Listen** — read any document aloud (browser voice free, ElevenLabs natural voice optional)
 - **Library** — reading queue (Unread → Reading → Library → Archived), tags, collections, full-text search
 - **Reading Memory** — reopen a document after weeks and get a 30-second AI refresher on what you read

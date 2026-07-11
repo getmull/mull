@@ -1,4 +1,4 @@
-import { HIGHLIGHT_ACTIONS, isHighlightAction, buildHighlightActionPrompt } from './prompts'
+import { HIGHLIGHT_ACTIONS, isHighlightAction, buildHighlightActionPrompt, buildHighlightActionSeedMessage } from './prompts'
 
 describe('isHighlightAction', () => {
   it.each(HIGHLIGHT_ACTIONS)('accepts %s', (action) => {
@@ -29,5 +29,16 @@ describe('buildHighlightActionPrompt', () => {
 
   it('asks translate to target English', () => {
     expect(buildHighlightActionPrompt('translate', 'bonjour')).toMatch(/English/)
+  })
+})
+
+describe('buildHighlightActionSeedMessage', () => {
+  it.each(HIGHLIGHT_ACTIONS)('returns a non-empty message for %s', (action) => {
+    expect(buildHighlightActionSeedMessage(action).length).toBeGreaterThan(0)
+  })
+
+  it('produces a distinct message per action', () => {
+    const messages = HIGHLIGHT_ACTIONS.map((a) => buildHighlightActionSeedMessage(a))
+    expect(new Set(messages).size).toBe(HIGHLIGHT_ACTIONS.length)
   })
 })
