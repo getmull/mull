@@ -82,7 +82,7 @@ Any saved document or article can be listened to. The feature is called **Listen
 
 ### 4. AI Layer
 
-All AI uses the Claude API (`claude-sonnet-4-6`). No API key = AI features hidden, not broken. The app must be fully usable without AI.
+AI is multi-provider (Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint), operator-selected via `AI_PROVIDER`. No provider configured = AI features hidden, not broken. The app must be fully usable without AI.
 
 **On Upload (automatic):**
 - TL;DR summary (3–5 sentences)
@@ -92,9 +92,9 @@ All AI uses the Claude API (`claude-sonnet-4-6`). No API key = AI features hidde
 **While Reading:**
 - **Ask AI** — Q&A with citations back to source (page # for PDFs, paragraph anchor for articles)
 - **Highlight → Explain** — select text, choose: Explain / Define / Simplify / Translate
-- **Highlight → Ask** — free-form prompt against the selected passage
+- **Highlight → Chat** — free-form follow-up against the selected passage; also where the four canned actions above land, as the opening turn of the thread
 
-**Cite-back standard:** Every AI answer links to the exact source location. Non-negotiable.
+**Cite-back standard:** Every Ask AI answer links to the exact source location. Non-negotiable. Highlight → Chat is exempt — the passage is already anchored to its page, visible in the panel itself.
 
 ---
 

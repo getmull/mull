@@ -29,9 +29,26 @@ SUPABASE_SERVICE_KEY=
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-**Optional — AI features (hidden if omitted, not broken):**
+**Optional — AI features (hidden if omitted, not broken). Pick ONE provider:**
 ```
+AI_PROVIDER=            # anthropic | openai | ollama | custom
+
+# Anthropic
 ANTHROPIC_API_KEY=
+# ANTHROPIC_MODEL=claude-sonnet-4-6   # default
+
+# OpenAI
+OPENAI_API_KEY=
+# OPENAI_MODEL=gpt-5.1                # default
+
+# Ollama, local — no API key needed
+# OLLAMA_BASE_URL=http://localhost:11434/v1   # default; from Docker use http://host.docker.internal:11434/v1 (Mac/Windows)
+# OLLAMA_MODEL=llama3.1                        # default; must be pulled first: `ollama pull llama3.1`
+
+# Any other OpenAI-compatible provider (Groq, Together, LM Studio, self-hosted vLLM)
+AI_BASE_URL=
+AI_API_KEY=
+AI_MODEL=
 ```
 
 **Optional — Natural voice for Listen (falls back to browser voice if omitted):**
@@ -56,7 +73,7 @@ services:
 
 > AI enhances the experience. It never gates the core reading workflow.
 
-If `ANTHROPIC_API_KEY` is not set:
+If no AI provider is configured (`AI_PROVIDER` unset or incomplete):
 - AI features are hidden in the UI
 - All reading, highlighting, bookmarking, and search still work fully
 - No errors, no broken states
