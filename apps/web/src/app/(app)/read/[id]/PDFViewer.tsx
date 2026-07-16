@@ -278,8 +278,16 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     setPendingSeed(null)
   }
 
-  function toggleAskAI() {
+  // Closes the highlight chat panel and drops any not-yet-consumed seed —
+  // otherwise it lingers in state and fires on the next reopen of the same
+  // highlight.
+  function closeHighlightChat() {
     setChatHighlightId(null)
+    setPendingSeed(null)
+  }
+
+  function toggleAskAI() {
+    closeHighlightChat()
     setAskAIOpen((open) => !open)
   }
 
@@ -574,7 +582,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
               : null
           }
           onSeedHandled={() => setPendingSeed(null)}
-          onClose={() => setChatHighlightId(null)}
+          onClose={closeHighlightChat}
         />
       )}
     </div>
