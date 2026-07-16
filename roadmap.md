@@ -15,17 +15,25 @@ Before any roadmap items, nail these four things. Everything else depends on the
 
 ## V1 — Launch
 
-- PDF upload, reflow mode, original view, bookmarks
-- Bookmarklet article saving
-- Listen (browser voice)
-- AI: auto-summary, Ask AI (with citations), highlight-explain, highlight-chat (freeform follow-up)
-- Highlights, annotations, tags, collections
-- Reading Memory (reopen recap)
-- Reading queue: Unread → Reading → Library → Archived
-- Full-text search (Postgres FTS)
-- Library homepage experience
-- Mobile-responsive PWA
-- Docker Compose self-hosting
+Status as of 2026-07-16. ✅ done · 🟡 partial · ⬜ not started
+
+- 🟡 PDF upload, reflow mode, original view, bookmarks — upload/extraction/original-view done; **no reflow mode, no bookmarks** (schema only)
+- ⬜ Bookmarklet article saving — `@mozilla/readability` not installed, reader 404s non-PDF docs
+- ⬜ Listen (browser voice)
+- 🟡 AI: auto-summary, Ask AI (with citations), highlight-explain, highlight-chat — Ask AI + highlight actions + Chat done; **auto-summary not started**
+- 🟡 Highlights, annotations, tags, collections — highlights + notes done; **tags/collections schema only, no API/UI**
+- ⬜ Reading Memory (reopen recap)
+- ⬜ Reading queue: Unread → Reading → Library → Archived — only one automatic unread→reading transition exists; no manual states, no queue UI
+- ⬜ Full-text search (Postgres FTS)
+- 🟡 Library homepage experience — flat chronological list only; no Continue Reading / Recently Added / queue filtering
+- ⬜ Mobile-responsive PWA — no manifest, no service worker
+- ✅ Docker Compose self-hosting
+
+**Suggested build order for what's left** (small/unblocking → core-loop gaps → new subsystems → polish):
+1. Reading progress + scroll position persistence, Bookmarks — schema ready, small, mirrors the highlights pattern already built
+2. Article ingestion (bookmarklet + readability ContentProvider), Tags/Collections + reading-queue UI, Full-text search — closes the core Save→Read loop and makes the library homepage real
+3. Auto-summary, Listen, Reading Memory — new subsystems, higher effort
+4. Mobile-responsive PWA — cross-cutting, do last before launch
 
 ---
 

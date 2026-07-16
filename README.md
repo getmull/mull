@@ -12,14 +12,24 @@ Self-host it or use our cloud.
 
 ## What It Does
 
-- **PDF reader** — upload, extract text, reflow or original layout, zoom, bookmarks, reading progress
-- **Article saving** — one-click bookmarklet using `@mozilla/readability` (Firefox Reader Mode engine)
-- **AI layer** — auto-summary on upload, Ask AI with source citations, highlight → explain/define/simplify/translate, highlight → Chat (freeform follow-up)
-- **Listen** — read any document aloud (browser voice free, ElevenLabs natural voice optional)
-- **Library** — reading queue (Unread → Reading → Library → Archived), tags, collections, full-text search
-- **Reading Memory** — reopen a document after weeks and get a 30-second AI refresher on what you read
+Mull is pre-launch and under active development. Here's what's actually working today vs. still being built — see `roadmap.md` for the full V1 tracker.
 
-No AI key required. Everything works. AI makes it exceptional.
+**Live now:**
+- **PDF reader** — upload, extract text, original layout view, zoom, page navigation
+- **Highlights** — 4 colors, inline notes
+- **AI layer** — Ask AI with source citations, highlight → explain/define/simplify/translate, highlight → Chat (freeform follow-up)
+- **Self-hosting** — Docker Compose
+
+**Being built for V1 launch (not yet available):**
+- Reflow mode, bookmarks, reading progress persistence
+- Article saving via bookmarklet (`@mozilla/readability`)
+- AI auto-summary on upload
+- Listen (read any document aloud)
+- Tags, collections, reading queue, full-text search, real library homepage
+- Reading Memory (reopen recap)
+- Mobile-responsive PWA
+
+No AI key required for what's live. AI features are hidden entirely if unconfigured, not broken.
 
 ---
 
