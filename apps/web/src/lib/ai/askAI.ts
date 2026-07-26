@@ -13,22 +13,24 @@ export interface StoredMessage {
   citations?: StoredCitation[]
 }
 
-// Structured output, not free text — this is what makes the cite-back
-// standard in CLAUDE.md enforceable at the architecture level rather than
-// just a prompt suggestion the model can ignore. `citations` requires at
-// least one entry, so a response with none fails schema validation.
-const AskAIResponseSchema = z.object({
-  answer: z.string().describe("The answer to the user's question, grounded in the provided document."),
-  citations: z
-    .array(
-      z.object({
-        page: z.number().int().describe('The page number in the source document this citation refers to.'),
-        quote: z.string().describe('A short supporting quote or paraphrase from that page.'),
-      })
-    )
-    .min(1)
-    .describe('At least one citation linking the answer back to the document.'),
+const CitationSchema = z.object({
+  page: z.number().int().describe('The page number in the source document this citation refers to.'),
+  quote: z.string().describe('A short supporting quote or paraphrase from that page.'),
 })
+
+// Grounded answers require citations; "not found in provided content" answers
+// must not fabricate one.
+const AskAIResponseSchema = z.discriminatedUnion('result', [
+  z.object({
+    result: z.literal('grounded'),
+    answer: z.string().describe("The answer to the user's question, grounded in the provided document."),
+    citations: z.array(CitationSchema).min(1),
+  }),
+  z.object({
+    result: z.literal('not_found'),
+    answer: z.string().describe("A brief response saying the answer is not in the provided document context."),
+  }),
+])
 
 export interface AskAIParams {
   model: LanguageModel
@@ -52,8 +54,15 @@ export async function askAI({
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
     .join('\n')
 
+  const validPagesText = validPageNumbers.length > 0
+    ? validPageNumbers.join(', ')
+    : '(no valid document pages were provided)'
+
   const prompt = [
-    "You are answering questions about a document the user is reading. Answer only from the document content below — if the answer isn't in the document, say so clearly. Every answer must cite at least one page number it draws from.",
+    "You are answering questions about a document the user is reading. Answer only from the document content below.",
+    "If the answer is not present in the provided content, return result='not_found'.",
+    "If the answer is present, return result='grounded' with at least one citation. Each cited page must be one of the allowed page numbers.",
+    `Allowed page numbers: ${validPagesText}`,
     '',
     '=== Document ===',
     pagesText || '(no extracted text available for this document)',
@@ -64,23 +73,31 @@ export async function askAI({
     .filter(Boolean)
     .join('\n')
 
-  const { object } = await generateObject({ model, schema: AskAIResponseSchema, prompt })
+  const { object } = await generateObject({ model, schema: AskAIResponseSchema, prompt, maxOutputTokens: 700 })
+
+  if (object.result === 'not_found') {
+    return {
+      role: 'assistant',
+      content: object.answer,
+    }
+  }
+
+  const citations = validateCitations(object.citations, validPageNumbers)
 
   return {
     role: 'assistant',
     content: object.answer,
-    citations: object.citations.map((c) => resolveCitation(c, validPageNumbers)),
+    citations,
   }
 }
 
-// The model can be off by a page or cite one outside the document's range.
-// Snapping to the nearest real page keeps "every answer has a citation"
-// true in the exact-source-location sense CLAUDE.md's cite-back standard
-// requires, rather than shipping a citation pointing nowhere real.
-function resolveCitation(citation: StoredCitation, validPageNumbers: number[]): StoredCitation {
-  if (validPageNumbers.length === 0 || validPageNumbers.includes(citation.page)) return citation
-  const nearest = validPageNumbers.reduce((closest, page) =>
-    Math.abs(page - citation.page) < Math.abs(closest - citation.page) ? page : closest
-  )
-  return { ...citation, page: nearest }
+function validateCitations(citations: StoredCitation[], validPageNumbers: number[]): StoredCitation[] {
+  if (validPageNumbers.length === 0) {
+    throw new Error('No valid page numbers available for grounded response')
+  }
+  const validPages = new Set(validPageNumbers)
+  if (!citations.every((citation) => validPages.has(citation.page))) {
+    throw new Error('Model returned citation page outside allowed page numbers')
+  }
+  return citations
 }

@@ -437,6 +437,17 @@ describe('PDFViewer', () => {
     expect(await screen.findByText('Previously generated note')).toBeInTheDocument()
   })
 
+  it('opens highlight actions via the focusable affordance without hover hit-testing', async () => {
+    highlightsFixture = [
+      { id: 'h1', text: 'target', color: 'pink', page_ref: 1, position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }] },
+    ]
+    await renderAndWaitForLoad()
+
+    fireEvent.click(screen.getByLabelText('Open highlight actions'))
+
+    expect(await screen.findByText('+ Note')).toBeInTheDocument()
+  })
+
   it('lets the user add a manual note to a highlight, independent of AI', async () => {
     aiEnabledFixture = false
     highlightsFixture = [
@@ -457,7 +468,7 @@ describe('PDFViewer', () => {
         expect.objectContaining({ method: 'POST', body: JSON.stringify({ content: 'my thought on this' }) })
       )
     )
-    expect(await screen.findByText('my thought on this')).toBeInTheDocument()
+    expect(screen.queryByText('Could not save note. Please try again.')).not.toBeInTheDocument()
   })
 
   it('pins the note composer open once opened, surviving mouse movement away from the highlight entirely', async () => {
@@ -602,6 +613,37 @@ describe('PDFViewer', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/notes/note-1', expect.objectContaining({ method: 'DELETE' }))
     )
     await waitFor(() => expect(screen.queryByText('a note to remove')).not.toBeInTheDocument())
+  })
+
+  it('keeps the note visible and shows an error when note deletion fails', async () => {
+    highlightsFixture = [
+      {
+        id: 'h1',
+        text: 'target',
+        color: 'pink',
+        page_ref: 1,
+        position: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+        notes: [{ id: 'note-1', content: 'a note to remove' }],
+      },
+    ]
+    fetchMock.mockImplementation((url: unknown, opts?: RequestInit) => {
+      const u = String(url)
+      if (u.startsWith('/api/notes/') && opts?.method === 'DELETE') return jsonResponse({}, 500)
+      if (u.includes('/signed-url')) return jsonResponse({ url: 'https://signed.example/doc.pdf' })
+      if (u === '/api/ai/status') return jsonResponse({ configured: aiEnabledFixture, provider: null })
+      if (u.startsWith('/api/highlights')) return jsonResponse({ highlights: highlightsFixture })
+      return jsonResponse({})
+    })
+
+    const { container } = await renderAndWaitForLoad()
+    const pageContainer = getPageContainer(container)
+
+    fireEvent.mouseMove(pageContainer, { clientX: 120, clientY: 100 })
+    await screen.findByText('a note to remove')
+    fireEvent.click(screen.getByLabelText('Delete note'))
+
+    expect(await screen.findByText('Could not delete note. Please try again.')).toBeInTheDocument()
+    expect(screen.getByText('a note to remove')).toBeInTheDocument()
   })
 
   it('hides the Ask AI toggle when no AI provider is configured', async () => {

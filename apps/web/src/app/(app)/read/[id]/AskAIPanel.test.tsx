@@ -97,4 +97,24 @@ describe('AskAIPanel', () => {
 
     await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
   })
+
+  it('does not send while initial history is still loading', async () => {
+    let resolveHistory: ((value: Response) => void) | null = null
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve
+        })
+    )
+    render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
+
+    const input = screen.getByPlaceholderText('Ask a question…')
+    expect(input).toBeDisabled()
+    fireEvent.change(input, { target: { value: 'Q while loading' } })
+    fireEvent.click(screen.getByText('Send'))
+    expect(fetchMock.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(0)
+
+    resolveHistory?.({ ok: true, status: 200, json: async () => ({ messages: [] }) } as Response)
+    expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument()
+  })
 })
