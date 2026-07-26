@@ -6,9 +6,8 @@ import { buildHighlightPageContext } from '@/lib/ai/context'
 import { chatAboutHighlight, type HighlightChatMessage } from '@/lib/ai/highlightChat'
 
 const MAX_MESSAGE_LENGTH = 2000
-// Keeps highlight_conversations.messages comfortably under its 64 KB check
-// constraint without needing to compute serialized size precisely.
-const MAX_STORED_MESSAGES = 40
+const MAX_STORED_MESSAGES_BYTES = 64000
+const MAX_CONVERSATION_WRITE_RETRIES = 3
 
 export async function GET(
   _request: NextRequest,
@@ -61,12 +60,15 @@ export async function POST(
   const model = getAIModel()
   if (!model) return NextResponse.json({ error: 'AI is not configured' }, { status: 503 })
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('highlight_conversations')
     .select('messages')
     .eq('highlight_id', id)
     .eq('user_id', user.id)
     .single()
+  if (existingError && existingError.code !== 'PGRST116') {
+    return NextResponse.json({ error: existingError.message }, { status: 500 })
+  }
 
   const history = (existing?.messages as HighlightChatMessage[]) ?? []
   const pageContext = await buildHighlightPageContext(highlight.document_id, highlight.page_ref)
@@ -90,12 +92,112 @@ export async function POST(
     role: 'user',
     content: hasAction ? buildHighlightActionSeedMessage(action) : message,
   }
-  const messages = [...history, userMessage, assistantMessage].slice(-MAX_STORED_MESSAGES)
+  const persisted = await persistConversationTurn({
+    supabase,
+    highlightId: id,
+    userId: user.id,
+    userMessage,
+    assistantMessage,
+  })
+  if (!persisted.ok) {
+    return NextResponse.json({ error: persisted.error }, { status: persisted.status })
+  }
 
-  const { error } = await supabase
-    .from('highlight_conversations')
-    .upsert({ highlight_id: id, user_id: user.id, messages }, { onConflict: 'highlight_id,user_id' })
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ userMessage, message: assistantMessage }, { status: 201 })
+}
+
+interface PersistTurnParams {
+  supabase: Awaited<ReturnType<typeof createClient>>
+  highlightId: string
+  userId: string
+  userMessage: HighlightChatMessage
+  assistantMessage: HighlightChatMessage
+}
+
+async function persistConversationTurn({
+  supabase,
+  highlightId,
+  userId,
+  userMessage,
+  assistantMessage,
+}: PersistTurnParams): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  for (let attempt = 0; attempt < MAX_CONVERSATION_WRITE_RETRIES; attempt += 1) {
+    const { data: current, error: readError } = await supabase
+      .from('highlight_conversations')
+      .select('messages, updated_at')
+      .eq('highlight_id', highlightId)
+      .eq('user_id', userId)
+      .single()
+
+    if (readError && readError.code !== 'PGRST116') {
+      return { ok: false, error: readError.message, status: 500 }
+    }
+
+    const history = (current?.messages as HighlightChatMessage[]) ?? []
+    const messages = trimMessagesToByteBudget(
+      [...history, userMessage, assistantMessage],
+      MAX_STORED_MESSAGES_BYTES
+    )
+    if (!messages) {
+      return { ok: false, error: 'Conversation turn is too large to store', status: 413 }
+    }
+
+    if (!current) {
+      const { error: insertError } = await supabase
+        .from('highlight_conversations')
+        .insert({ highlight_id: highlightId, user_id: userId, messages })
+      if (!insertError) return { ok: true }
+      if (insertError.code === '23505') {
+        await sleepBeforeRetry(attempt)
+        continue
+      }
+      return { ok: false, error: insertError.message, status: 500 }
+    }
+
+    const { error: updateError } = await supabase
+      .from('highlight_conversations')
+      .update({ messages })
+      .eq('highlight_id', highlightId)
+      .eq('user_id', userId)
+      .eq('updated_at', current.updated_at)
+      .select('id')
+      .single()
+
+    if (!updateError) return { ok: true }
+    if (updateError.code === 'PGRST116') {
+      await sleepBeforeRetry(attempt)
+      continue
+    }
+    return { ok: false, error: updateError.message, status: 500 }
+  }
+
+  return { ok: false, error: 'Conversation changed while saving, please retry', status: 409 }
+}
+
+function trimMessagesToByteBudget(messages: HighlightChatMessage[], maxBytes: number): HighlightChatMessage[] | null {
+  const trimmed = messages.map((message) => ({ ...message }))
+  while (trimmed.length > 2 && messageBytes(trimmed) > maxBytes) {
+    trimmed.splice(0, 2)
+  }
+  if (messageBytes(trimmed) <= maxBytes) return trimmed
+
+  const assistant = trimmed[trimmed.length - 1]
+  if (!assistant || assistant.role !== 'assistant') return null
+
+  let content = assistant.content
+  while (content.length > 0 && messageBytes(trimmed) > maxBytes) {
+    content = content.slice(0, -200)
+    assistant.content = content.length > 0 ? `${content}…` : ''
+  }
+
+  return messageBytes(trimmed) <= maxBytes ? trimmed : null
+}
+
+function messageBytes(messages: HighlightChatMessage[]): number {
+  return new TextEncoder().encode(JSON.stringify(messages)).length
+}
+
+async function sleepBeforeRetry(attempt: number): Promise<void> {
+  const delayMs = (attempt + 1) * 50
+  await new Promise((resolve) => setTimeout(resolve, delayMs))
 }

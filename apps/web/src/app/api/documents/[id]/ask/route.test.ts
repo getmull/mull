@@ -19,6 +19,23 @@ const mockGetAIModel = getAIModel as jest.Mock
 const mockBuildContext = buildDocumentContext as jest.Mock
 const mockAskAI = askAI as jest.Mock
 
+function selectBuilder(result: { data: unknown; error: unknown }) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(result),
+  }
+}
+
+function updateBuilder(result: { data: unknown; error: unknown }) {
+  return {
+    update: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(result),
+  }
+}
+
 function ctx(id = 'doc-1') {
   return { params: Promise.resolve({ id }) }
 }
@@ -123,21 +140,14 @@ describe('POST /api/documents/[id]/ask', () => {
     expect(res.status).toBe(502)
   })
 
-  it('appends the new turn, upserts, and returns the assistant message on success', async () => {
+  it('appends the new turn, saves it with optimistic update, and returns the assistant message on success', async () => {
     const existingMessages = [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'earlier answer' }]
-    const upsert = jest.fn().mockResolvedValue({ data: null, error: null })
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'doc-1' }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { messages: existingMessages }, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages, updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
@@ -156,31 +166,20 @@ describe('POST /api/documents/[id]/ask', () => {
     expect(mockAskAI).toHaveBeenCalledWith(
       expect.objectContaining({ question: 'What is this about?', history: existingMessages, validPageNumbers: [1, 2] })
     )
-    expect(upsert).toHaveBeenCalledWith(
-      {
-        document_id: 'doc-1',
-        user_id: 'user-1',
-        messages: [...existingMessages, { role: 'user', content: 'What is this about?' }, assistantMessage],
-      },
-      { onConflict: 'document_id,user_id' }
-    )
+    expect(mockBuildContext).toHaveBeenCalledWith('doc-1', 'user-1', 'What is this about?')
+    expect(update.update).toHaveBeenCalledWith({
+      messages: [...existingMessages, { role: 'user', content: 'What is this about?' }, assistantMessage],
+    })
   })
 
-  it('trims stored messages to the most recent 40', async () => {
-    const existingMessages = Array.from({ length: 40 }, (_, i) => ({ role: 'user', content: `turn-${i}` }))
-    const upsert = jest.fn().mockResolvedValue({ data: null, error: null })
+  it('trims stored messages to fit the byte budget before saving', async () => {
+    const existingMessages = Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: 'x'.repeat(3500) + i }))
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'doc-1' }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { messages: existingMessages }, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages, updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
@@ -192,25 +191,17 @@ describe('POST /api/documents/[id]/ask', () => {
 
     await POST(postRequest({ question: 'new question' }), ctx('doc-1'))
 
-    const [payload] = upsert.mock.calls[0]
-    expect(payload.messages).toHaveLength(40)
-    expect(payload.messages[0]).toEqual({ role: 'user', content: 'turn-2' })
-    expect(payload.messages.at(-1)).toEqual({ role: 'assistant', content: 'answer', citations: [{ page: 1, quote: 'q' }] })
+    const [{ messages }] = update.update.mock.calls[0]
+    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(64000)
+    expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'answer', citations: [{ page: 1, quote: 'q' }] })
   })
 
-  it('returns 500 when the upsert fails', async () => {
+  it('returns 500 when saving the conversation fails', async () => {
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'doc-1' }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: null, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: { code: 'PGRST116', message: 'not found' } }))
+    from.mockReturnValueOnce({ insert: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) })
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },

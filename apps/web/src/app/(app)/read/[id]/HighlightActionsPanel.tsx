@@ -21,6 +21,7 @@ interface Props {
   notes: Note[]
   aiEnabled: boolean
   addingNote: boolean
+  errorMessage?: string | null
   // Note-writing is pinned open explicitly (see PDFViewer) rather than
   // tied to hover — a text input needs to survive the mouse moving away.
   composingNote: boolean
@@ -28,7 +29,7 @@ interface Props {
   onOpenChat: () => void
   onOpenNoteComposer: () => void
   onCloseNoteComposer: () => void
-  onAddNote: (content: string) => void
+  onAddNote: (content: string) => Promise<boolean>
   onDeleteNote: (noteId: string) => void
   onRemove: () => void
   onMouseEnter: () => void
@@ -39,6 +40,7 @@ export function HighlightActionsPanel({
   notes,
   aiEnabled,
   addingNote,
+  errorMessage,
   composingNote,
   onAction,
   onOpenChat,
@@ -57,11 +59,11 @@ export function HighlightActionsPanel({
     if (composingNote) textareaRef.current?.focus()
   }, [composingNote])
 
-  function submitNote() {
+  async function submitNote() {
     const content = noteInput.trim()
     if (!content || addingNote) return
-    onAddNote(content)
-    setNoteInput('')
+    const saved = await onAddNote(content)
+    if (saved) setNoteInput('')
   }
 
   return (
@@ -99,7 +101,7 @@ export function HighlightActionsPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault()
-                submitNote()
+                void submitNote()
               } else if (e.key === 'Escape') {
                 onCloseNoteComposer()
               }
@@ -135,6 +137,8 @@ export function HighlightActionsPanel({
           + Note
         </button>
       )}
+
+      {errorMessage && <p className="text-[11px] text-red-600">{errorMessage}</p>}
 
       <div className="flex items-center gap-1 flex-wrap">
         {aiEnabled && (

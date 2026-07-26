@@ -29,7 +29,7 @@ describe('buildDocumentContext', () => {
       })
     )
 
-    const context = await buildDocumentContext('doc-1', 'user-1')
+    const context = await buildDocumentContext('doc-1', 'user-1', 'What does this say?')
 
     expect(context.pagesText).toBe(
       '--- Page 1 ---\nFirst page text\n\n--- Page 2 ---\nSecond page text'
@@ -43,7 +43,7 @@ describe('buildDocumentContext', () => {
       mockSupabaseClient({ fromResults: [{ data: null, error: null }, { data: null, error: null }] })
     )
 
-    const context = await buildDocumentContext('doc-1', 'user-1')
+    const context = await buildDocumentContext('doc-1', 'user-1', 'Anything?')
 
     expect(context.pagesText).toBe('')
     expect(context.highlightsText).toBe('')
@@ -60,10 +60,32 @@ describe('buildDocumentContext', () => {
       })
     )
 
-    const context = await buildDocumentContext('doc-1', 'user-1')
+    const context = await buildDocumentContext('doc-1', 'user-1', 'Anything?')
 
     expect(context.pagesText.length).toBeLessThan(20000)
     expect(context.pagesText).toMatch(/\[\.\.\.document truncated\.\.\.\]$/)
+  })
+
+  it('prefers query-relevant pages over a fixed prefix when over budget', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          {
+            data: [
+              { page_number: 1, raw_text: 'x'.repeat(8000) },
+              { page_number: 2, raw_text: 'x'.repeat(8000) },
+              { page_number: 3, raw_text: 'targetterm appears here' },
+            ],
+            error: null,
+          },
+          { data: [], error: null },
+        ],
+      })
+    )
+
+    const context = await buildDocumentContext('doc-1', 'user-1', 'Where is targetterm used?')
+
+    expect(context.pagesText).toContain('--- Page 3 ---')
   })
 
   it('shows a fallback page marker when a highlight has no page_ref', async () => {
@@ -76,7 +98,7 @@ describe('buildDocumentContext', () => {
       })
     )
 
-    const context = await buildDocumentContext('doc-1', 'user-1')
+    const context = await buildDocumentContext('doc-1', 'user-1', 'Anything?')
 
     expect(context.highlightsText).toBe('- (page ?) "orphan highlight"')
   })

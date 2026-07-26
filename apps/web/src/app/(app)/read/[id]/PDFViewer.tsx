@@ -61,6 +61,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   const [saving, setSaving]         = useState(false)
   const [aiEnabled, setAiEnabled]   = useState(false)
   const [addingNote, setAddingNote] = useState(false)
+  const [highlightPanelError, setHighlightPanelError] = useState<string | null>(null)
   const [pinnedNoteId, setPinnedNoteId] = useState<string | null>(null)
   const [askAIOpen, setAskAIOpen]   = useState(false)
   const [chatHighlightId, setChatHighlightId] = useState<string | null>(null)
@@ -261,6 +262,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   // update) or a different one (key={chatHighlightId} forces a remount so
   // history reloads fresh, then the same seed applies once that resolves).
   function openHighlightChat(highlightId: string, action: Action) {
+    setHighlightPanelError(null)
     setAskAIOpen(false)
     setChatHighlightId(highlightId)
     setPendingSeed((prev) => ({ highlightId, action, token: (prev?.token ?? 0) + 1 }))
@@ -270,8 +272,10 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   // anything — for continuing an existing conversation, or starting a
   // freeform one, without re-triggering one of the four canned actions.
   function openHighlightChatOnly(highlightId: string) {
+    setHighlightPanelError(null)
     setAskAIOpen(false)
     setChatHighlightId(highlightId)
+    setPendingSeed(null)
   }
 
   function toggleAskAI() {
@@ -279,41 +283,59 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     setAskAIOpen((open) => !open)
   }
 
-  async function addNote(highlightId: string, content: string) {
+  async function addNote(highlightId: string, content: string): Promise<boolean> {
     setAddingNote(true)
+    setHighlightPanelError(null)
     try {
       const res = await fetch(`/api/highlights/${highlightId}/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ content }),
       })
-      if (res.ok) {
-        const { note } = await res.json()
-        setHighlights((prev) =>
-          prev.map((h) => (h.id === highlightId ? { ...h, notes: [...(h.notes ?? []), note] } : h))
-        )
-        setPinnedNoteId(null)
+      if (!res.ok) {
+       setHighlightPanelError('Could not save note. Please try again.')
+       return false
       }
+      const { note } = await res.json()
+      setHighlights((prev) =>
+       prev.map((h) => (h.id === highlightId ? { ...h, notes: [...(h.notes ?? []), note] } : h))
+      )
+      setPinnedNoteId(null)
+      return true
+    } catch {
+      setHighlightPanelError('Could not save note. Please try again.')
+      return false
     } finally {
       setAddingNote(false)
     }
   }
 
   function openNoteComposer(highlightId: string) {
+    setHighlightPanelError(null)
     setPinnedNoteId(highlightId)
   }
 
   function closeNoteComposer() {
+    setHighlightPanelError(null)
     setPinnedNoteId(null)
   }
 
   async function deleteNote(highlightId: string, noteId: string) {
-    await fetch(`/api/notes/${noteId}`, { method: 'DELETE' })
-    setHighlights((prev) =>
-      prev.map((h) =>
-        h.id === highlightId ? { ...h, notes: (h.notes ?? []).filter((n) => n.id !== noteId) } : h
+    setHighlightPanelError(null)
+    try {
+      const res = await fetch(`/api/notes/${noteId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        setHighlightPanelError('Could not delete note. Please try again.')
+        return
+      }
+      setHighlights((prev) =>
+        prev.map((h) =>
+          h.id === highlightId ? { ...h, notes: (h.notes ?? []).filter((n) => n.id !== noteId) } : h
+        )
       )
-    )
+    } catch {
+      setHighlightPanelError('Could not delete note. Please try again.')
+    }
   }
 
   function goTo(page: number) {
@@ -410,6 +432,37 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           ))
         )}
 
+        {/* Persistent/focusable affordances so keyboard and touch users can open
+            a highlight's action panel without relying on hover hit-testing. */}
+        {pageHighlights.map((h) => {
+          const firstRect = h.position?.[0]
+          if (!firstRect) return null
+          return (
+            <button
+              key={`${h.id}-affordance`}
+              type="button"
+              aria-label="Open highlight actions"
+              className="absolute z-30 h-5 w-5 rounded-full border border-neutral-300 bg-white/95 text-[11px] text-neutral-600 shadow-sm hover:bg-white focus:outline-none focus:ring-2 focus:ring-neutral-500"
+              style={{
+                left: `${Math.max(0, Math.min(0.98, firstRect.x + firstRect.width - 0.02)) * 100}%`,
+                top: `${Math.max(0, firstRect.y - 0.02) * 100}%`,
+              }}
+              onClick={() => {
+                if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
+                setHighlightPanelError(null)
+                setHoveredId(h.id)
+              }}
+              onFocus={() => {
+                if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
+                setHighlightPanelError(null)
+                setHoveredId(h.id)
+              }}
+            >
+              ⋯
+            </button>
+          )
+        })}
+
         {/* Text layer on top for selection */}
         <div ref={textLayerRef} className="textLayer" style={{ zIndex: 2 }} />
 
@@ -474,6 +527,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
                 notes={activeHighlight.notes ?? []}
                 aiEnabled={aiEnabled}
                 addingNote={addingNote}
+                errorMessage={highlightPanelError}
                 composingNote={isPinned}
                 onAction={(action) => openHighlightChat(activeHighlight.id, action)}
                 onOpenChat={() => openHighlightChatOnly(activeHighlight.id)}

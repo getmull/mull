@@ -14,7 +14,12 @@ export interface DocumentContext {
   pageNumbers: number[]
 }
 
-export async function buildDocumentContext(documentId: string, userId: string): Promise<DocumentContext> {
+interface PageRow {
+  page_number: number
+  raw_text: string
+}
+
+export async function buildDocumentContext(documentId: string, userId: string, question: string): Promise<DocumentContext> {
   const supabase = await createClient()
 
   const { data: pages } = await supabase
@@ -23,10 +28,8 @@ export async function buildDocumentContext(documentId: string, userId: string): 
     .eq('document_id', documentId)
     .order('page_number', { ascending: true })
 
-  const pagesText = truncateToBudget(
-    (pages ?? []).map((p) => `--- Page ${p.page_number} ---\n${p.raw_text}`).join('\n\n'),
-    MAX_CONTEXT_CHARS
-  )
+  const pageRows: PageRow[] = pages ?? []
+  const pagesText = buildQueryRelevantPagesText(pageRows, question, MAX_CONTEXT_CHARS)
 
   const { data: highlights } = await supabase
     .from('highlights')
@@ -40,12 +43,52 @@ export async function buildDocumentContext(documentId: string, userId: string): 
     .map((h) => `- (page ${h.page_ref ?? '?'}) "${h.text}"`)
     .join('\n')
 
-  return { pagesText, highlightsText, pageNumbers: (pages ?? []).map((p) => p.page_number) }
+  return { pagesText, highlightsText, pageNumbers: pageRows.map((p) => p.page_number) }
 }
 
 function truncateToBudget(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text
   return `${text.slice(0, maxChars)}\n[...document truncated...]`
+}
+
+function buildQueryRelevantPagesText(pages: PageRow[], question: string, maxChars: number): string {
+  if (pages.length === 0) return ''
+
+  const allText = pages.map((p) => `--- Page ${p.page_number} ---\n${p.raw_text}`).join('\n\n')
+  if (allText.length <= maxChars) return allText
+
+  const tokenMatches = question.toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? []
+  const tokens = Array.from(new Set(tokenMatches.filter((token) => token.length >= 3)))
+  const scored = pages.map((page, index) => ({
+    page,
+    index,
+    score: scorePage(page.raw_text, tokens),
+  }))
+
+  const ranked = [...scored].sort((a, b) => (b.score - a.score) || (a.index - b.index))
+  const selected: Array<{ page: PageRow; index: number }> = []
+  let selectedLength = 0
+  for (const candidate of ranked) {
+    const pageText = `--- Page ${candidate.page.page_number} ---\n${candidate.page.raw_text}`
+    const addition = selected.length === 0 ? pageText.length : pageText.length + 2
+    if (selectedLength + addition > maxChars) continue
+    selected.push({ page: candidate.page, index: candidate.index })
+    selectedLength += addition
+  }
+
+  if (selected.length === 0) {
+    return truncateToBudget(allText, maxChars)
+  }
+
+  const ordered = selected.sort((a, b) => a.index - b.index)
+  const combined = ordered.map(({ page }) => `--- Page ${page.page_number} ---\n${page.raw_text}`).join('\n\n')
+  return truncateToBudget(combined, maxChars)
+}
+
+function scorePage(text: string, tokens: string[]): number {
+  if (tokens.length === 0) return 0
+  const normalized = text.toLowerCase()
+  return tokens.reduce((score, token) => (normalized.includes(token) ? score + 1 : score), 0)
 }
 
 // Single page of surrounding context for a highlight chat — much smaller

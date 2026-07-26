@@ -19,6 +19,23 @@ const mockGetAIModel = getAIModel as jest.Mock
 const mockBuildPageContext = buildHighlightPageContext as jest.Mock
 const mockChatAboutHighlight = chatAboutHighlight as jest.Mock
 
+function selectBuilder(result: { data: unknown; error: unknown }) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(result),
+  }
+}
+
+function updateBuilder(result: { data: unknown; error: unknown }) {
+  return {
+    update: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(result),
+  }
+}
+
 function ctx(id = 'h1') {
   return { params: Promise.resolve({ id }) }
 }
@@ -145,20 +162,13 @@ describe('POST /api/highlights/[id]/chat', () => {
     expect(res.status).toBe(502)
   })
 
-  it('generates a seed turn, upserts, and returns both messages on success', async () => {
-    const upsert = jest.fn().mockResolvedValue({ data: null, error: null })
+  it('generates a seed turn, saves it with optimistic update, and returns both messages on success', async () => {
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'h1', document_id: 'doc-1', text: 'sample passage', page_ref: 2 }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: null, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'sample passage', page_ref: 2 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: [], updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
@@ -178,30 +188,18 @@ describe('POST /api/highlights/[id]/chat', () => {
     expect(mockChatAboutHighlight).toHaveBeenCalledWith(
       expect.objectContaining({ highlightText: 'sample passage', pageRef: 2, action: 'explain', message: undefined })
     )
-    expect(upsert).toHaveBeenCalledWith(
-      {
-        highlight_id: 'h1',
-        user_id: 'user-1',
-        messages: [{ role: 'user', content: 'Explain this passage.' }, assistantMessage],
-      },
-      { onConflict: 'highlight_id,user_id' }
-    )
+    expect(update.update).toHaveBeenCalledWith({
+      messages: [{ role: 'user', content: 'Explain this passage.' }, assistantMessage],
+    })
   })
 
   it('generates a freeform turn using the message field, not an action', async () => {
-    const upsert = jest.fn().mockResolvedValue({ data: null, error: null })
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'h1', document_id: 'doc-1', text: 'sample passage', page_ref: 2 }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: null, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'sample passage', page_ref: 2 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: [], updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
@@ -221,21 +219,14 @@ describe('POST /api/highlights/[id]/chat', () => {
     )
   })
 
-  it('trims stored messages to the most recent 40', async () => {
-    const existingMessages = Array.from({ length: 40 }, (_, i) => ({ role: 'user', content: `turn-${i}` }))
-    const upsert = jest.fn().mockResolvedValue({ data: null, error: null })
+  it('trims stored messages to fit the byte budget before saving', async () => {
+    const existingMessages = Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: 'x'.repeat(3500) + i }))
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 1 }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { messages: existingMessages }, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 1 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages, updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
@@ -247,25 +238,17 @@ describe('POST /api/highlights/[id]/chat', () => {
 
     await POST(postRequest({ message: 'new question' }), ctx('h1'))
 
-    const [payload] = upsert.mock.calls[0]
-    expect(payload.messages).toHaveLength(40)
-    expect(payload.messages[0]).toEqual({ role: 'user', content: 'turn-2' })
-    expect(payload.messages.at(-1)).toEqual({ role: 'assistant', content: 'answer' })
+    const [{ messages }] = update.update.mock.calls[0]
+    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(64000)
+    expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'answer' })
   })
 
-  it('returns 500 when the upsert fails', async () => {
+  it('returns 500 when saving the conversation fails', async () => {
     const from = jest.fn()
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 1 }, error: null }),
-    })
-    from.mockReturnValueOnce({
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: null, error: null }),
-    })
-    from.mockReturnValueOnce({ upsert: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) })
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 1 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: { code: 'PGRST116', message: 'not found' } }))
+    from.mockReturnValueOnce({ insert: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) })
 
     mockCreateClient.mockResolvedValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },

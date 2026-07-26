@@ -51,6 +51,6 @@ export async function chatAboutHighlight({
     .filter(Boolean)
     .join('\n')
 
-  const { text } = await generateText({ model, prompt })
+  const { text } = await generateText({ model, prompt, maxOutputTokens: 700 })
   return { role: 'assistant', content: text }
 }

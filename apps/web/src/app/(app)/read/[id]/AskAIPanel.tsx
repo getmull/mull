@@ -13,6 +13,7 @@ interface Props {
 
 export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [loadedDocumentId, setLoadedDocumentId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -23,7 +24,10 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
       .then((r) => r.json())
       .then(({ messages: history }) => setMessages(history ?? []))
       .catch(() => {})
+      .finally(() => setLoadedDocumentId(documentId))
   }, [documentId])
+
+  const historyLoaded = loadedDocumentId === documentId
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
@@ -31,7 +35,7 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
 
   async function handleSend() {
     const question = input.trim()
-    if (!question || loading) return
+    if (!question || loading || !historyLoaded) return
     setInput('')
     setError(null)
     setMessages((prev) => [...prev, { role: 'user', content: question }])
@@ -95,6 +99,7 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
           </div>
         ))}
         {loading && <p className="text-sm text-neutral-400">Thinking…</p>}
+        {!historyLoaded && <p className="text-sm text-neutral-400">Loading conversation…</p>}
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
 
@@ -104,11 +109,12 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
           placeholder="Ask a question…"
+          disabled={!historyLoaded}
           className="flex-1 rounded border border-neutral-200 px-3 py-1.5 text-sm outline-none focus:border-neutral-400"
         />
         <button
           onClick={handleSend}
-          disabled={loading || !input.trim()}
+          disabled={loading || !historyLoaded || !input.trim()}
           className="rounded bg-neutral-800 px-3 py-1.5 text-sm text-white disabled:opacity-40 transition-colors"
         >
           Send

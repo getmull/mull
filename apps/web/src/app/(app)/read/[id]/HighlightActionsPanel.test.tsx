@@ -1,8 +1,9 @@
 import type { ComponentProps } from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { HighlightActionsPanel } from './HighlightActionsPanel'
 
 const noop = () => {}
+const asyncTrue = async () => true
 
 const defaultProps: ComponentProps<typeof HighlightActionsPanel> = {
   notes: [],
@@ -13,7 +14,7 @@ const defaultProps: ComponentProps<typeof HighlightActionsPanel> = {
   onOpenChat: noop,
   onOpenNoteComposer: noop,
   onCloseNoteComposer: noop,
-  onAddNote: noop,
+  onAddNote: asyncTrue,
   onDeleteNote: noop,
   onRemove: noop,
   onMouseEnter: noop,
@@ -114,7 +115,7 @@ describe('HighlightActionsPanel', () => {
   })
 
   it('adds a note when typed and submitted via the Add note button', () => {
-    const onAddNote = jest.fn()
+    const onAddNote = jest.fn().mockResolvedValue(true)
     render(<HighlightActionsPanel {...defaultProps} composingNote onAddNote={onAddNote} />)
 
     fireEvent.change(screen.getByPlaceholderText('Add a note…'), { target: { value: 'my thought' } })
@@ -123,8 +124,8 @@ describe('HighlightActionsPanel', () => {
     expect(onAddNote).toHaveBeenCalledWith('my thought')
   })
 
-  it('adds a note when Cmd+Enter is pressed, and clears the textarea', () => {
-    const onAddNote = jest.fn()
+  it('adds a note when Cmd+Enter is pressed, and clears the textarea after save succeeds', async () => {
+    const onAddNote = jest.fn().mockResolvedValue(true)
     render(<HighlightActionsPanel {...defaultProps} composingNote onAddNote={onAddNote} />)
     const textarea = screen.getByPlaceholderText('Add a note…') as HTMLTextAreaElement
 
@@ -132,7 +133,7 @@ describe('HighlightActionsPanel', () => {
     fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
 
     expect(onAddNote).toHaveBeenCalledWith('my thought')
-    expect(textarea.value).toBe('')
+    await waitFor(() => expect(textarea.value).toBe(''))
   })
 
   it('does not submit on a plain Enter, so multi-line notes can use real newlines', () => {

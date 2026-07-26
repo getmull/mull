@@ -15,7 +15,11 @@ describe('askAI', () => {
 
   it('returns an assistant message with the model-provided citations', async () => {
     mockGenerateObject.mockResolvedValue({
-      object: { answer: 'The mitochondria is the powerhouse of the cell.', citations: [{ page: 3, quote: 'powerhouse of the cell' }] },
+      object: {
+        result: 'grounded',
+        answer: 'The mitochondria is the powerhouse of the cell.',
+        citations: [{ page: 3, quote: 'powerhouse of the cell' }],
+      },
     })
 
     const result = await askAI({
@@ -34,26 +38,43 @@ describe('askAI', () => {
     })
   })
 
-  it('snaps a citation to the nearest valid page when the model cites one outside the document', async () => {
+  it('throws when the model cites a page outside the allowed page list', async () => {
     mockGenerateObject.mockResolvedValue({
-      object: { answer: 'Answer text', citations: [{ page: 99, quote: 'something' }] },
+      object: { result: 'grounded', answer: 'Answer text', citations: [{ page: 99, quote: 'something' }] },
     })
 
-    const result = await askAI({
-      model: { modelId: 'mock' } as never,
-      question: 'Q',
-      pagesText: 'text',
-      highlightsText: '',
-      history: [],
-      validPageNumbers: [1, 2, 3],
-    })
-
-    expect(result.citations).toEqual([{ page: 3, quote: 'something' }])
+    await expect(
+      askAI({
+        model: { modelId: 'mock' } as never,
+        question: 'Q',
+        pagesText: 'text',
+        highlightsText: '',
+        history: [],
+        validPageNumbers: [1, 2, 3],
+      })
+    ).rejects.toThrow('outside allowed page numbers')
   })
 
-  it('leaves citations untouched when no valid page list is available', async () => {
+  it('throws on grounded answers when no valid page list is available', async () => {
     mockGenerateObject.mockResolvedValue({
-      object: { answer: 'Answer text', citations: [{ page: 42, quote: 'something' }] },
+      object: { result: 'grounded', answer: 'Answer text', citations: [{ page: 42, quote: 'something' }] },
+    })
+
+    await expect(
+      askAI({
+        model: { modelId: 'mock' } as never,
+        question: 'Q',
+        pagesText: 'text',
+        highlightsText: '',
+        history: [],
+        validPageNumbers: [],
+      })
+    ).rejects.toThrow('No valid page numbers')
+  })
+
+  it('allows a not_found response without citations', async () => {
+    mockGenerateObject.mockResolvedValue({
+      object: { result: 'not_found', answer: "I couldn't find that in the provided document text." },
     })
 
     const result = await askAI({
@@ -62,14 +83,17 @@ describe('askAI', () => {
       pagesText: 'text',
       highlightsText: '',
       history: [],
-      validPageNumbers: [],
+      validPageNumbers: [1],
     })
 
-    expect(result.citations).toEqual([{ page: 42, quote: 'something' }])
+    expect(result).toEqual({
+      role: 'assistant',
+      content: "I couldn't find that in the provided document text.",
+    })
   })
 
   it('includes the question, document text, highlights, and recent history in the prompt', async () => {
-    mockGenerateObject.mockResolvedValue({ object: { answer: 'A', citations: [{ page: 1, quote: 'q' }] } })
+    mockGenerateObject.mockResolvedValue({ object: { result: 'grounded', answer: 'A', citations: [{ page: 1, quote: 'q' }] } })
 
     await askAI({
       model: { modelId: 'mock' } as never,
@@ -89,7 +113,7 @@ describe('askAI', () => {
   })
 
   it('only includes the last 10 history turns', async () => {
-    mockGenerateObject.mockResolvedValue({ object: { answer: 'A', citations: [{ page: 1, quote: 'q' }] } })
+    mockGenerateObject.mockResolvedValue({ object: { result: 'grounded', answer: 'A', citations: [{ page: 1, quote: 'q' }] } })
     const history = Array.from({ length: 15 }, (_, i) => ({ role: 'user' as const, content: `turn-${i}` }))
 
     await askAI({
