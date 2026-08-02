@@ -20,7 +20,7 @@
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "6.1.200",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
