@@ -1,4 +1,4 @@
-pymupdf==1.28.0
+pymupdf==1.28.2
 fastapi==0.139.0
 uvicorn==0.51.0
 python-multipart==0.0.32
