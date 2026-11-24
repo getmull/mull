@@ -217,8 +217,13 @@ async function sleepBeforeRetry(attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs))
 }
 
-// Raw Postgres errors are internal detail (schema, constraint names), so
-// they're logged server-side only and clients get a generic message.
-function logDbError(operation: string, error: { code?: string; message?: string }): void {
-  console.error(`[chat] Failed to ${operation}`, { code: error.code, message: error.message })
+// Raw Postgres errors are internal detail, and message/details/hint can echo
+// user-supplied values, so only non-content fields are logged and clients get
+// a generic message.
+function logDbError(operation: string, error: unknown): void {
+  const { code, name } = (typeof error === 'object' && error !== null ? error : {}) as { code?: unknown; name?: unknown }
+  console.error(`[chat] Failed to ${operation}`, {
+    code: typeof code === 'string' ? code : undefined,
+    name: typeof name === 'string' ? name : error instanceof Error ? error.name : typeof error,
+  })
 }

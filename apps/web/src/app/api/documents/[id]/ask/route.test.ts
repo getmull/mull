@@ -100,6 +100,36 @@ describe('GET /api/documents/[id]/ask', () => {
     expect(res.status).toBe(500)
     expect(json).toEqual({ error: 'Failed to load conversation' })
     expect(JSON.stringify(json)).not.toContain('statement timeout')
+  })
+
+  it('logs only the error code and name, never the DB message, details or hint', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          {
+            data: null,
+            error: {
+              code: '22P02',
+              name: 'PostgrestError',
+              message: 'invalid input syntax: "secret user text"',
+              details: 'Key (text)=(secret user text)',
+              hint: 'secret hint',
+            },
+          },
+        ],
+      })
+    )
+
+    await GET({} as NextRequest, ctx())
+
+    expect(consoleError).toHaveBeenCalledWith(expect.any(String), { code: '22P02', name: 'PostgrestError' })
+    const logged = JSON.stringify(consoleError.mock.calls)
+    expect(logged).not.toContain('secret')
+    expect(logged).not.toContain('message')
+    expect(logged).not.toContain('details')
+    expect(logged).not.toContain('hint')
+    consoleError.mockRestore()
     consoleError.mockRestore()
   })
 })
