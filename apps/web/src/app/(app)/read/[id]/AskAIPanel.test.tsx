@@ -99,7 +99,7 @@ describe('AskAIPanel', () => {
   })
 
   it('does not send while initial history is still loading', async () => {
-    let resolveHistory: ((value: Response) => void) | null = null
+    let resolveHistory!: (value: Response) => void
     fetchMock.mockImplementationOnce(
       () =>
         new Promise<Response>((resolve) => {
@@ -114,7 +114,7 @@ describe('AskAIPanel', () => {
     fireEvent.click(screen.getByText('Send'))
     expect(fetchMock.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(0)
 
-    resolveHistory?.({ ok: true, status: 200, json: async () => ({ messages: [] }) } as Response)
+    resolveHistory({ ok: true, status: 200, json: async () => ({ messages: [] }) } as Response)
     expect(await screen.findByText('Ask a question about this document.')).toBeInTheDocument()
   })
 })

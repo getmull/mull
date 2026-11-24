@@ -100,6 +100,8 @@ describe('GET /api/documents/[id]/ask', () => {
     expect(res.status).toBe(500)
     expect(json).toEqual({ error: 'Failed to load conversation' })
     expect(JSON.stringify(json)).not.toContain('statement timeout')
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 
   it('logs only the error code and name, never the DB message, details or hint', async () => {
