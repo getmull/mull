@@ -18,19 +18,22 @@ const CitationSchema = z.object({
   quote: z.string().describe('A short supporting quote or paraphrase from that page.'),
 })
 
-// Grounded answers require citations; "not found in provided content" answers
-// must not fabricate one.
-const AskAIResponseSchema = z.discriminatedUnion('result', [
-  z.object({
-    result: z.literal('grounded'),
-    answer: z.string().describe("The answer to the user's question, grounded in the provided document."),
-    citations: z.array(CitationSchema).min(1),
-  }),
-  z.object({
-    result: z.literal('not_found'),
-    answer: z.string().describe("A brief response saying the answer is not in the provided document context."),
-  }),
-])
+// A flat root object rather than a discriminated union: OpenAI strict
+// structured outputs and Anthropic tool input_schema both require the root
+// schema to be a plain object. The grounded => cited invariant is enforced in
+// code below instead of in the schema.
+const AskAIResponseSchema = z.object({
+  result: z
+    .enum(['grounded', 'not_found'])
+    .describe("'grounded' if the answer is in the provided document, 'not_found' otherwise."),
+  answer: z.string().describe("The answer to the user's question, or a brief note that it isn't in the provided document."),
+  citations: z
+    .array(CitationSchema)
+    .describe("Required (at least one) when result is 'grounded'. Empty when result is 'not_found'."),
+})
+
+// Bounds how long a hung provider can hold the request open.
+const AI_REQUEST_TIMEOUT_MS = 30000
 
 export interface AskAIParams {
   model: LanguageModel
@@ -73,8 +76,17 @@ export async function askAI({
     .filter(Boolean)
     .join('\n')
 
-  const { object } = await generateObject({ model, schema: AskAIResponseSchema, prompt, maxOutputTokens: 700 })
+  const { object } = await generateObject({
+    model,
+    schema: AskAIResponseSchema,
+    prompt,
+    maxOutputTokens: 700,
+    maxRetries: 1,
+    abortSignal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+  })
 
+  // not_found answers must not carry a fabricated citation — drop whatever
+  // the model returned.
   if (object.result === 'not_found') {
     return {
       role: 'assistant',
@@ -94,6 +106,9 @@ export async function askAI({
 function validateCitations(citations: StoredCitation[], validPageNumbers: number[]): StoredCitation[] {
   if (validPageNumbers.length === 0) {
     throw new Error('No valid page numbers available for grounded response')
+  }
+  if (citations.length === 0) {
+    throw new Error('Model returned a grounded answer without citations')
   }
   const validPages = new Set(validPageNumbers)
   if (!citations.every((citation) => validPages.has(citation.page))) {

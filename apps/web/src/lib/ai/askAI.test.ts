@@ -3,6 +3,7 @@
  */
 import { askAI } from './askAI'
 import { generateObject } from 'ai'
+import { z } from 'zod'
 
 jest.mock('ai', () => ({ generateObject: jest.fn() }))
 
@@ -72,9 +73,30 @@ describe('askAI', () => {
     ).rejects.toThrow('No valid page numbers')
   })
 
-  it('allows a not_found response without citations', async () => {
+  it('throws when a grounded answer has no citations', async () => {
     mockGenerateObject.mockResolvedValue({
-      object: { result: 'not_found', answer: "I couldn't find that in the provided document text." },
+      object: { result: 'grounded', answer: 'Answer text', citations: [] },
+    })
+
+    await expect(
+      askAI({
+        model: { modelId: 'mock' } as never,
+        question: 'Q',
+        pagesText: 'text',
+        highlightsText: '',
+        history: [],
+        validPageNumbers: [1, 2, 3],
+      })
+    ).rejects.toThrow('without citations')
+  })
+
+  it('drops any citations the model returned on a not_found response', async () => {
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        result: 'not_found',
+        answer: "I couldn't find that in the provided document text.",
+        citations: [{ page: 1, quote: 'fabricated' }],
+      },
     })
 
     const result = await askAI({
@@ -90,6 +112,28 @@ describe('askAI', () => {
       role: 'assistant',
       content: "I couldn't find that in the provided document text.",
     })
+  })
+
+  it('uses a flat object schema with a timeout and a single retry', async () => {
+    mockGenerateObject.mockResolvedValue({ object: { result: 'grounded', answer: 'A', citations: [{ page: 1, quote: 'q' }] } })
+
+    await askAI({
+      model: { modelId: 'mock' } as never,
+      question: 'Q',
+      pagesText: 'text',
+      highlightsText: '',
+      history: [],
+      validPageNumbers: [1],
+    })
+
+    const { schema, maxRetries, abortSignal } = mockGenerateObject.mock.calls[0][0]
+    expect(z.toJSONSchema(schema)).toMatchObject({
+      type: 'object',
+      properties: { result: { enum: ['grounded', 'not_found'] } },
+      required: ['result', 'answer', 'citations'],
+    })
+    expect(maxRetries).toBe(1)
+    expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
   it('includes the question, document text, highlights, and recent history in the prompt', async () => {

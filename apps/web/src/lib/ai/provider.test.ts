@@ -1,4 +1,4 @@
-import { getAIModel, getAIStatus } from './provider'
+import { getAIModel, getAIStatus, logAIError } from './provider'
 import { getAIProviderConfig } from './config'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
@@ -124,5 +124,49 @@ describe('getAIStatus', () => {
     mockGetConfig.mockReturnValue({ provider: 'ollama', baseURL: 'x', apiKey: 'x', model: 'x' })
 
     expect(getAIStatus()).toEqual({ configured: true, provider: 'ollama' })
+  })
+})
+
+describe('logAIError', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('logs only the error class, status code, and provider — never the message or request details', () => {
+    mockGetConfig.mockReturnValue({ provider: 'anthropic', apiKey: 'sk-ant-secret', model: 'claude-sonnet-4-6' })
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const error = Object.assign(new Error('prompt text: secret document contents'), {
+      name: 'AI_APICallError',
+      statusCode: 429,
+      requestBodyValues: { prompt: 'secret document contents' },
+      responseHeaders: { authorization: 'sk-ant-secret' },
+    })
+
+    logAIError('ask', error)
+
+    expect(consoleError).toHaveBeenCalledWith('[ask] AI request failed', {
+      name: 'AI_APICallError',
+      statusCode: 429,
+      provider: 'anthropic',
+    })
+    const logged = JSON.stringify(consoleError.mock.calls)
+    expect(logged).not.toContain('secret')
+  })
+
+  it('reads the status code from a RetryError lastError', () => {
+    mockGetConfig.mockReturnValue({ provider: 'openai', apiKey: 'sk', model: 'gpt-5.1' })
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const error = Object.assign(new Error('retries exhausted'), {
+      name: 'AI_RetryError',
+      lastError: Object.assign(new Error('x'), { statusCode: 503 }),
+    })
+
+    logAIError('chat', error)
+
+    expect(consoleError).toHaveBeenCalledWith('[chat] AI request failed', {
+      name: 'AI_RetryError',
+      statusCode: 503,
+      provider: 'openai',
+    })
   })
 })

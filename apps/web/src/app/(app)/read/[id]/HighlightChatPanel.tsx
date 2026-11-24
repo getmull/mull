@@ -23,11 +23,23 @@ export function HighlightChatPanel({ highlightId, pageRef, pendingSeed, onSeedHa
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Guards against a stale load (e.g. Strict Mode's double effect) merging
+    // the same history in twice.
+    let cancelled = false
     fetch(`/api/highlights/${highlightId}/chat`)
       .then((r) => r.json())
-      .then(({ messages: history }) => setMessages(history ?? []))
+      // Merge rather than replace, so a turn appended before this resolves
+      // is never clobbered. Safe because the panel is keyed per highlight.
+      .then(({ messages: history }) => {
+        if (!cancelled) setMessages((prev) => [...(history ?? []), ...prev])
+      })
       .catch(() => {})
-      .finally(() => setHistoryLoaded(true))
+      .finally(() => {
+        if (!cancelled) setHistoryLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [highlightId])
 
   useEffect(() => {
@@ -78,7 +90,7 @@ export function HighlightChatPanel({ highlightId, pageRef, pendingSeed, onSeedHa
 
   function handleSend() {
     const text = input.trim()
-    if (!text || loading) return
+    if (!text || loading || !historyLoaded) return
     setInput('')
     sendTurn({ message: text }, text)
   }
@@ -117,13 +129,14 @@ export function HighlightChatPanel({ highlightId, pageRef, pendingSeed, onSeedHa
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          disabled={!historyLoaded}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
           placeholder="Ask a follow-up…"
           className="flex-1 rounded border border-neutral-200 px-3 py-1.5 text-sm outline-none focus:border-neutral-400"
         />
         <button
           onClick={handleSend}
-          disabled={loading || !input.trim()}
+          disabled={loading || !historyLoaded || !input.trim()}
           className="rounded bg-neutral-800 px-3 py-1.5 text-sm text-white disabled:opacity-40 transition-colors"
         >
           Send

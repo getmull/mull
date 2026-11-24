@@ -39,6 +39,24 @@ export function getAIModel(): LanguageModel | null {
   }
 }
 
+// Server-side log for a failed AI call. Deliberately logs only the error
+// class, HTTP status (if any) and provider name — never the error message,
+// request config/headers (API key), prompt, document text, or user content.
+export function logAIError(route: string, error: unknown): void {
+  const name = error instanceof Error ? error.name : typeof error
+  const statusCode = extractStatusCode(error)
+  const provider = getAIProviderConfig()?.provider ?? 'unknown'
+  console.error(`[${route}] AI request failed`, { name, statusCode, provider })
+}
+
+function extractStatusCode(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const { statusCode, lastError } = error as { statusCode?: unknown; lastError?: unknown }
+  if (typeof statusCode === 'number') return statusCode
+  // RetryError wraps the final attempt's error.
+  return lastError !== undefined && lastError !== error ? extractStatusCode(lastError) : undefined
+}
+
 export interface AIStatus {
   configured: boolean
   provider: AIProviderId | null

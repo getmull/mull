@@ -20,7 +20,6 @@ describe('chatAboutHighlight', () => {
       model: { modelId: 'mock' } as never,
       highlightText: 'the mitochondria',
       pageRef: 3,
-      pageContext: '',
       history: [],
       action: 'explain',
     })
@@ -36,7 +35,6 @@ describe('chatAboutHighlight', () => {
       model: { modelId: 'mock' } as never,
       highlightText: 'sample passage',
       pageRef: 1,
-      pageContext: '',
       history: [],
       action: 'define',
     })
@@ -53,7 +51,6 @@ describe('chatAboutHighlight', () => {
       model: { modelId: 'mock' } as never,
       highlightText: 'sample passage',
       pageRef: 1,
-      pageContext: '',
       history: [],
       message: 'What does "it" refer to?',
     })
@@ -63,31 +60,22 @@ describe('chatAboutHighlight', () => {
     expect(prompt).toContain('Continue the conversation')
   })
 
-  it('includes page context only when provided', async () => {
+  it('keeps the prompt strictly on the highlighted passage, with a timeout and a single retry', async () => {
     mockGenerateText.mockResolvedValue({ text: 'A' })
 
     await chatAboutHighlight({
       model: { modelId: 'mock' } as never,
       highlightText: 'passage',
       pageRef: 2,
-      pageContext: 'Full page body text',
       history: [],
       action: 'explain',
     })
-    const { prompt: withContext } = mockGenerateText.mock.calls[0][0]
-    expect(withContext).toContain('Full page body text')
 
-    mockGenerateText.mockClear()
-    await chatAboutHighlight({
-      model: { modelId: 'mock' } as never,
-      highlightText: 'passage',
-      pageRef: 2,
-      pageContext: '',
-      history: [],
-      action: 'explain',
-    })
-    const { prompt: withoutContext } = mockGenerateText.mock.calls[0][0]
-    expect(withoutContext).not.toContain('surrounding context')
+    const { prompt, maxRetries, abortSignal } = mockGenerateText.mock.calls[0][0]
+    expect(prompt).toContain('passage')
+    expect(prompt).not.toMatch(/full text of page|surrounding/i)
+    expect(maxRetries).toBe(1)
+    expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
   it('includes conversation history, truncated to the last 10 turns', async () => {
@@ -101,7 +89,6 @@ describe('chatAboutHighlight', () => {
       model: { modelId: 'mock' } as never,
       highlightText: 'passage',
       pageRef: 1,
-      pageContext: '',
       history,
       message: 'follow-up',
     })

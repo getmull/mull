@@ -4,18 +4,19 @@
 import { NextRequest } from 'next/server'
 import { GET, POST } from './route'
 import { createClient } from '@/lib/supabase/server'
-import { getAIModel } from '@/lib/ai/provider'
+import { getAIModel, logAIError } from '@/lib/ai/provider'
 import { buildDocumentContext } from '@/lib/ai/context'
 import { askAI } from '@/lib/ai/askAI'
 import { mockSupabaseClient } from '@/test-utils/supabase'
 
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
-jest.mock('@/lib/ai/provider', () => ({ getAIModel: jest.fn() }))
+jest.mock('@/lib/ai/provider', () => ({ getAIModel: jest.fn(), logAIError: jest.fn() }))
 jest.mock('@/lib/ai/context', () => ({ buildDocumentContext: jest.fn() }))
 jest.mock('@/lib/ai/askAI', () => ({ askAI: jest.fn() }))
 
 const mockCreateClient = createClient as jest.Mock
 const mockGetAIModel = getAIModel as jest.Mock
+const mockLogAIError = logAIError as jest.Mock
 const mockBuildContext = buildDocumentContext as jest.Mock
 const mockAskAI = askAI as jest.Mock
 
@@ -75,6 +76,32 @@ describe('GET /api/documents/[id]/ask', () => {
 
     expect(json).toEqual({ messages })
   })
+
+  it('treats PGRST116 (no row) as an empty conversation', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: null, error: { code: 'PGRST116', message: 'no rows' } }] })
+    )
+
+    const res = await GET({} as NextRequest, ctx())
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ messages: [] })
+  })
+
+  it('returns a generic 500 on a real read error instead of an empty conversation', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }] })
+    )
+
+    const res = await GET({} as NextRequest, ctx())
+    const json = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(json).toEqual({ error: 'Failed to load conversation' })
+    expect(JSON.stringify(json)).not.toContain('statement timeout')
+    consoleError.mockRestore()
+  })
 })
 
 describe('POST /api/documents/[id]/ask', () => {
@@ -82,6 +109,11 @@ describe('POST /api/documents/[id]/ask', () => {
     mockGetAIModel.mockReset()
     mockBuildContext.mockReset()
     mockAskAI.mockReset()
+    mockLogAIError.mockReset()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -133,11 +165,54 @@ describe('POST /api/documents/[id]/ask', () => {
     )
     mockGetAIModel.mockReturnValue({ modelId: 'mock' })
     mockBuildContext.mockResolvedValue({ pagesText: 'text', highlightsText: '', pageNumbers: [1] })
-    mockAskAI.mockRejectedValue(new Error('boom'))
+    const failure = new Error('boom')
+    mockAskAI.mockRejectedValue(failure)
 
     const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
 
     expect(res.status).toBe(502)
+    expect(await res.json()).toEqual({ error: 'AI request failed' })
+    expect(mockLogAIError).toHaveBeenCalledWith('ask', failure)
+  })
+
+  it('returns a generic 500 without calling the AI when document context fails to load', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          { data: { id: 'doc-1' }, error: null },
+          { data: null, error: null },
+        ],
+      })
+    )
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+    mockBuildContext.mockRejectedValue(new Error('Failed to load document pages'))
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load document' })
+    expect(mockAskAI).not.toHaveBeenCalled()
+  })
+
+  it('returns a generic 500 without calling the AI when the existing conversation read fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          { data: { id: 'doc-1' }, error: null },
+          { data: null, error: { code: '08006', message: 'connection failure' } },
+        ],
+      })
+    )
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load conversation' })
+    expect(mockBuildContext).not.toHaveBeenCalled()
+    expect(mockAskAI).not.toHaveBeenCalled()
   })
 
   it('appends the new turn, saves it with optimistic update, and returns the assistant message on success', async () => {
@@ -192,11 +267,12 @@ describe('POST /api/documents/[id]/ask', () => {
     await POST(postRequest({ question: 'new question' }), ctx('doc-1'))
 
     const [{ messages }] = update.update.mock.calls[0]
-    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(64000)
+    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(52000)
     expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'answer', citations: [{ page: 1, quote: 'q' }] })
   })
 
-  it('returns 500 when saving the conversation fails', async () => {
+  it('returns a generic 500 when saving the conversation fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
     const from = jest.fn()
     from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
@@ -214,5 +290,6 @@ describe('POST /api/documents/[id]/ask', () => {
     const res = await POST(postRequest({ question: 'What is this about?' }), ctx('doc-1'))
 
     expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to save conversation' })
   })
 })

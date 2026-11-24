@@ -4,19 +4,17 @@
 import { NextRequest } from 'next/server'
 import { GET, POST } from './route'
 import { createClient } from '@/lib/supabase/server'
-import { getAIModel } from '@/lib/ai/provider'
-import { buildHighlightPageContext } from '@/lib/ai/context'
+import { getAIModel, logAIError } from '@/lib/ai/provider'
 import { chatAboutHighlight } from '@/lib/ai/highlightChat'
 import { mockSupabaseClient } from '@/test-utils/supabase'
 
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
-jest.mock('@/lib/ai/provider', () => ({ getAIModel: jest.fn() }))
-jest.mock('@/lib/ai/context', () => ({ buildHighlightPageContext: jest.fn() }))
+jest.mock('@/lib/ai/provider', () => ({ getAIModel: jest.fn(), logAIError: jest.fn() }))
 jest.mock('@/lib/ai/highlightChat', () => ({ chatAboutHighlight: jest.fn() }))
 
 const mockCreateClient = createClient as jest.Mock
 const mockGetAIModel = getAIModel as jest.Mock
-const mockBuildPageContext = buildHighlightPageContext as jest.Mock
+const mockLogAIError = logAIError as jest.Mock
 const mockChatAboutHighlight = chatAboutHighlight as jest.Mock
 
 function selectBuilder(result: { data: unknown; error: unknown }) {
@@ -75,12 +73,41 @@ describe('GET /api/highlights/[id]/chat', () => {
 
     expect(json).toEqual({ messages })
   })
+
+  it('treats PGRST116 (no row) as an empty conversation', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: null, error: { code: 'PGRST116', message: 'no rows' } }] })
+    )
+
+    const res = await GET({} as NextRequest, ctx())
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ messages: [] })
+  })
+
+  it('returns a generic 500 on a real read error instead of an empty conversation', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }] })
+    )
+
+    const res = await GET({} as NextRequest, ctx())
+    const json = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(json).toEqual({ error: 'Failed to load conversation' })
+    expect(JSON.stringify(json)).not.toContain('statement timeout')
+  })
 })
 
 describe('POST /api/highlights/[id]/chat', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
   beforeEach(() => {
     mockGetAIModel.mockReset()
-    mockBuildPageContext.mockReset()
+    mockLogAIError.mockReset()
     mockChatAboutHighlight.mockReset()
   })
 
@@ -134,7 +161,7 @@ describe('POST /api/highlights/[id]/chat', () => {
 
   it('returns 503 when no AI provider is configured', async () => {
     mockCreateClient.mockResolvedValue(
-      mockSupabaseClient({ fromResults: [{ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 2 }, error: null }] })
+      mockSupabaseClient({ fromResults: [{ data: { id: 'h1', text: 'passage', page_ref: 2 }, error: null }] })
     )
     mockGetAIModel.mockReturnValue(null)
 
@@ -148,24 +175,26 @@ describe('POST /api/highlights/[id]/chat', () => {
     mockCreateClient.mockResolvedValue(
       mockSupabaseClient({
         fromResults: [
-          { data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 2 }, error: null },
+          { data: { id: 'h1', text: 'passage', page_ref: 2 }, error: null },
           { data: null, error: null },
         ],
       })
     )
     mockGetAIModel.mockReturnValue({ modelId: 'mock' })
-    mockBuildPageContext.mockResolvedValue('')
-    mockChatAboutHighlight.mockRejectedValue(new Error('boom'))
+    const failure = new Error('boom')
+    mockChatAboutHighlight.mockRejectedValue(failure)
 
     const res = await POST(postRequest({ action: 'explain' }), ctx())
 
     expect(res.status).toBe(502)
+    expect(await res.json()).toEqual({ error: 'AI request failed' })
+    expect(mockLogAIError).toHaveBeenCalledWith('chat', failure)
   })
 
   it('generates a seed turn, saves it with optimistic update, and returns both messages on success', async () => {
     const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'sample passage', page_ref: 2 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', text: 'sample passage', page_ref: 2 }, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: { messages: [], updated_at: '2026-01-01T00:00:00Z' }, error: null }))
     from.mockReturnValueOnce(update)
@@ -175,7 +204,6 @@ describe('POST /api/highlights/[id]/chat', () => {
       from,
     })
     mockGetAIModel.mockReturnValue({ modelId: 'mock' })
-    mockBuildPageContext.mockResolvedValue('page text')
     const assistantMessage = { role: 'assistant', content: 'This means...' }
     mockChatAboutHighlight.mockResolvedValue(assistantMessage)
 
@@ -188,6 +216,9 @@ describe('POST /api/highlights/[id]/chat', () => {
     expect(mockChatAboutHighlight).toHaveBeenCalledWith(
       expect.objectContaining({ highlightText: 'sample passage', pageRef: 2, action: 'explain', message: undefined })
     )
+    // Chat is strictly scoped to the highlighted passage — no surrounding page text.
+    expect(mockChatAboutHighlight.mock.calls[0][0]).not.toHaveProperty('pageContext')
+    expect(from).not.toHaveBeenCalledWith('document_pages')
     expect(update.update).toHaveBeenCalledWith({
       messages: [{ role: 'user', content: 'Explain this passage.' }, assistantMessage],
     })
@@ -196,7 +227,7 @@ describe('POST /api/highlights/[id]/chat', () => {
   it('generates a freeform turn using the message field, not an action', async () => {
     const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'sample passage', page_ref: 2 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', text: 'sample passage', page_ref: 2 }, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: { messages: [], updated_at: '2026-01-01T00:00:00Z' }, error: null }))
     from.mockReturnValueOnce(update)
@@ -206,7 +237,6 @@ describe('POST /api/highlights/[id]/chat', () => {
       from,
     })
     mockGetAIModel.mockReturnValue({ modelId: 'mock' })
-    mockBuildPageContext.mockResolvedValue('')
     mockChatAboutHighlight.mockResolvedValue({ role: 'assistant', content: 'answer' })
 
     const res = await POST(postRequest({ message: 'what does this mean?' }), ctx('h1'))
@@ -223,7 +253,7 @@ describe('POST /api/highlights/[id]/chat', () => {
     const existingMessages = Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: 'x'.repeat(3500) + i }))
     const update = updateBuilder({ data: { id: 'row-1' }, error: null })
     const from = jest.fn()
-    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 1 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', text: 'passage', page_ref: 1 }, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages }, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages, updated_at: '2026-01-01T00:00:00Z' }, error: null }))
     from.mockReturnValueOnce(update)
@@ -233,19 +263,19 @@ describe('POST /api/highlights/[id]/chat', () => {
       from,
     })
     mockGetAIModel.mockReturnValue({ modelId: 'mock' })
-    mockBuildPageContext.mockResolvedValue('')
     mockChatAboutHighlight.mockResolvedValue({ role: 'assistant', content: 'answer' })
 
     await POST(postRequest({ message: 'new question' }), ctx('h1'))
 
     const [{ messages }] = update.update.mock.calls[0]
-    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(64000)
+    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(52000)
     expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'answer' })
   })
 
-  it('returns 500 when saving the conversation fails', async () => {
+  it('returns a generic 500 when saving the conversation fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
     const from = jest.fn()
-    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', document_id: 'doc-1', text: 'passage', page_ref: 1 }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'h1', text: 'passage', page_ref: 1 }, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
     from.mockReturnValueOnce(selectBuilder({ data: null, error: { code: 'PGRST116', message: 'not found' } }))
     from.mockReturnValueOnce({ insert: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) })
@@ -255,11 +285,30 @@ describe('POST /api/highlights/[id]/chat', () => {
       from,
     })
     mockGetAIModel.mockReturnValue({ modelId: 'mock' })
-    mockBuildPageContext.mockResolvedValue('')
     mockChatAboutHighlight.mockResolvedValue({ role: 'assistant', content: 'answer' })
 
     const res = await POST(postRequest({ action: 'explain' }), ctx('h1'))
 
     expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to save conversation' })
+  })
+
+  it('returns a generic 500 before calling the AI when the existing conversation read fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          { data: { id: 'h1', text: 'passage', page_ref: 2 }, error: null },
+          { data: null, error: { code: '08006', message: 'connection failure' } },
+        ],
+      })
+    )
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+
+    const res = await POST(postRequest({ action: 'explain' }), ctx())
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load conversation' })
+    expect(mockChatAboutHighlight).not.toHaveBeenCalled()
   })
 })

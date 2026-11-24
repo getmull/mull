@@ -524,6 +524,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
               }}
             >
               <HighlightActionsPanel
+                key={activeHighlight.id}
                 notes={activeHighlight.notes ?? []}
                 aiEnabled={aiEnabled}
                 addingNote={addingNote}

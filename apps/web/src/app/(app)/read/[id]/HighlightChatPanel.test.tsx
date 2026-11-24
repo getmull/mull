@@ -13,6 +13,12 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+// The empty-state prompt renders before the history GET resolves, so tests
+// that type a message wait for the input to unlock instead.
+async function waitForHistoryLoaded() {
+  await waitFor(() => expect(screen.getByPlaceholderText('Ask a follow-up…')).toBeEnabled())
+}
+
 beforeEach(() => {
   fetchMock = jest.fn((url: unknown, opts?: RequestInit) => {
     const u = String(url)
@@ -76,7 +82,7 @@ describe('HighlightChatPanel', () => {
 
   it('sends a freeform message optimistically, then appends the reply', async () => {
     render(<HighlightChatPanel highlightId="h1" pageRef={1} pendingSeed={null} onSeedHandled={jest.fn()} onClose={jest.fn()} />)
-    await screen.findByText('Ask a question about this highlight.')
+    await waitForHistoryLoaded()
 
     fireEvent.change(screen.getByPlaceholderText('Ask a follow-up…'), { target: { value: 'What does this mean?' } })
     fireEvent.click(screen.getByText('Send'))
@@ -143,6 +149,30 @@ describe('HighlightChatPanel', () => {
     expect(await screen.findByText('It means X.')).toBeInTheDocument()
   })
 
+  it('blocks freeform sends until history has loaded, then keeps both history and the new turn', async () => {
+    const getDeferred = deferred<Response>()
+    fetchMock.mockImplementationOnce(() => getDeferred.promise)
+
+    render(<HighlightChatPanel highlightId="h1" pageRef={1} pendingSeed={null} onSeedHandled={jest.fn()} onClose={jest.fn()} />)
+
+    const input = screen.getByPlaceholderText('Ask a follow-up…')
+    expect(input).toBeDisabled()
+    expect(screen.getByText('Send')).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(fetchMock.mock.calls.filter(([, opts]) => opts?.method === 'POST')).toHaveLength(0)
+
+    getDeferred.resolve(await jsonResponse({ messages: [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'earlier reply' }] }))
+    await waitForHistoryLoaded()
+
+    fireEvent.change(input, { target: { value: 'follow-up' } })
+    fireEvent.click(screen.getByText('Send'))
+
+    expect(await screen.findByText('Re: follow-up')).toBeInTheDocument()
+    expect(screen.getByText('earlier')).toBeInTheDocument()
+    expect(screen.getByText('earlier reply')).toBeInTheDocument()
+    expect(screen.getByText('follow-up')).toBeInTheDocument()
+  })
+
   it('calls onClose when the close button is clicked', async () => {
     const onClose = jest.fn()
     render(<HighlightChatPanel highlightId="h1" pageRef={1} pendingSeed={null} onSeedHandled={jest.fn()} onClose={onClose} />)
@@ -160,7 +190,7 @@ describe('HighlightChatPanel', () => {
       return jsonResponse({ messages: [] })
     })
     render(<HighlightChatPanel highlightId="h1" pageRef={1} pendingSeed={null} onSeedHandled={jest.fn()} onClose={jest.fn()} />)
-    await screen.findByText('Ask a question about this highlight.')
+    await waitForHistoryLoaded()
 
     fireEvent.change(screen.getByPlaceholderText('Ask a follow-up…'), { target: { value: 'Q' } })
     fireEvent.click(screen.getByText('Send'))
@@ -171,7 +201,7 @@ describe('HighlightChatPanel', () => {
 
   it('does not send an empty or whitespace-only message', async () => {
     render(<HighlightChatPanel highlightId="h1" pageRef={1} pendingSeed={null} onSeedHandled={jest.fn()} onClose={jest.fn()} />)
-    await screen.findByText('Ask a question about this highlight.')
+    await waitForHistoryLoaded()
     fetchMock.mockClear()
 
     fireEvent.change(screen.getByPlaceholderText('Ask a follow-up…'), { target: { value: '   ' } })

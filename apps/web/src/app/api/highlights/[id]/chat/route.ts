@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAIModel } from '@/lib/ai/provider'
+import { getAIModel, logAIError } from '@/lib/ai/provider'
 import { isHighlightAction, buildHighlightActionSeedMessage } from '@/lib/ai/prompts'
-import { buildHighlightPageContext } from '@/lib/ai/context'
 import { chatAboutHighlight, type HighlightChatMessage } from '@/lib/ai/highlightChat'
 
 const MAX_MESSAGE_LENGTH = 2000
-const MAX_STORED_MESSAGES_BYTES = 64000
+// The DB enforces octet_length(messages::text) < 65536, but this budget is
+// measured on JSON.stringify output, which is more compact than Postgres's
+// jsonb text output (that adds a space after every ':' and ','). 52000 leaves
+// headroom for that expansion — up to two extra bytes per key/element.
+const MAX_STORED_MESSAGES_BYTES = 52000
 const MAX_CONVERSATION_WRITE_RETRIES = 3
 
 export async function GET(
@@ -18,12 +21,19 @@ export async function GET(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: conversation } = await supabase
+  const { data: conversation, error } = await supabase
     .from('highlight_conversations')
     .select('messages')
     .eq('highlight_id', id)
     .eq('user_id', user.id)
     .single()
+
+  // PGRST116 = no row yet, i.e. an empty conversation. Anything else is a real
+  // read failure and must not be presented as an empty history.
+  if (error && error.code !== 'PGRST116') {
+    logDbError('load conversation', error)
+    return NextResponse.json({ error: 'Failed to load conversation' }, { status: 500 })
+  }
 
   return NextResponse.json({ messages: (conversation?.messages as HighlightChatMessage[]) ?? [] })
 }
@@ -50,7 +60,7 @@ export async function POST(
 
   const { data: highlight } = await supabase
     .from('highlights')
-    .select('id, document_id, text, page_ref')
+    .select('id, text, page_ref')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -67,11 +77,11 @@ export async function POST(
     .eq('user_id', user.id)
     .single()
   if (existingError && existingError.code !== 'PGRST116') {
-    return NextResponse.json({ error: existingError.message }, { status: 500 })
+    logDbError('load conversation', existingError)
+    return NextResponse.json({ error: 'Failed to load conversation' }, { status: 500 })
   }
 
   const history = (existing?.messages as HighlightChatMessage[]) ?? []
-  const pageContext = await buildHighlightPageContext(highlight.document_id, highlight.page_ref)
 
   let assistantMessage: HighlightChatMessage
   try {
@@ -79,12 +89,12 @@ export async function POST(
       model,
       highlightText: highlight.text,
       pageRef: highlight.page_ref,
-      pageContext,
       history,
       action: hasAction ? action : undefined,
       message: hasMessage ? message : undefined,
     })
-  } catch {
+  } catch (error) {
+    logAIError('chat', error)
     return NextResponse.json({ error: 'AI request failed' }, { status: 502 })
   }
 
@@ -105,6 +115,8 @@ export async function POST(
 
   return NextResponse.json({ userMessage, message: assistantMessage }, { status: 201 })
 }
+
+const SAVE_FAILED_MESSAGE = 'Failed to save conversation'
 
 interface PersistTurnParams {
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -130,7 +142,8 @@ async function persistConversationTurn({
       .single()
 
     if (readError && readError.code !== 'PGRST116') {
-      return { ok: false, error: readError.message, status: 500 }
+      logDbError('read conversation for save', readError)
+      return { ok: false, error: SAVE_FAILED_MESSAGE, status: 500 }
     }
 
     const history = (current?.messages as HighlightChatMessage[]) ?? []
@@ -151,7 +164,8 @@ async function persistConversationTurn({
         await sleepBeforeRetry(attempt)
         continue
       }
-      return { ok: false, error: insertError.message, status: 500 }
+      logDbError('insert conversation', insertError)
+      return { ok: false, error: SAVE_FAILED_MESSAGE, status: 500 }
     }
 
     const { error: updateError } = await supabase
@@ -168,7 +182,8 @@ async function persistConversationTurn({
       await sleepBeforeRetry(attempt)
       continue
     }
-    return { ok: false, error: updateError.message, status: 500 }
+    logDbError('update conversation', updateError)
+    return { ok: false, error: SAVE_FAILED_MESSAGE, status: 500 }
   }
 
   return { ok: false, error: 'Conversation changed while saving, please retry', status: 409 }
@@ -200,4 +215,10 @@ function messageBytes(messages: HighlightChatMessage[]): number {
 async function sleepBeforeRetry(attempt: number): Promise<void> {
   const delayMs = (attempt + 1) * 50
   await new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
+// Raw Postgres errors are internal detail (schema, constraint names), so
+// they're logged server-side only and clients get a generic message.
+function logDbError(operation: string, error: { code?: string; message?: string }): void {
+  console.error(`[chat] Failed to ${operation}`, { code: error.code, message: error.message })
 }
