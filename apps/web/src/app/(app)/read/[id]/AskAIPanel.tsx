@@ -21,12 +21,14 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    setError(null)
     fetch(`/api/documents/${documentId}/ask`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`History request failed: ${r.status}`)
         const { messages: history } = await r.json()
-        if (!cancelled) setMessages(history ?? [])
+        if (!cancelled) {
+          setMessages(history ?? [])
+          setError(null)
+        }
       })
       .catch(() => {
         // Sending is still allowed: the POST reads authoritative history server-side.
