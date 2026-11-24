@@ -57,7 +57,8 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
 
     function rollback(message: string) {
       setMessages((prev) => prev.filter((m) => m !== optimistic))
-      setInput(question)
+      // Keep any draft typed while the request was pending.
+      setInput((prev) => (prev.trim() ? prev : question))
       setError(message)
     }
 

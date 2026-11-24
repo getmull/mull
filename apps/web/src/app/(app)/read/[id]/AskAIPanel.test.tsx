@@ -101,6 +101,32 @@ describe('AskAIPanel', () => {
     expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
   })
 
+  it('keeps a draft typed while the request was pending when the send fails', async () => {
+    let resolvePost!: (value: Response) => void
+    fetchMock.mockImplementation((url: unknown, opts?: RequestInit) => {
+      if (String(url).endsWith('/ask') && opts?.method === 'POST') {
+        return new Promise<Response>((resolve) => {
+          resolvePost = resolve
+        })
+      }
+      return jsonResponse({ messages: [] })
+    })
+    render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
+    await screen.findByText('Ask a question about this document.')
+
+    const input = screen.getByPlaceholderText('Ask a question…')
+    fireEvent.change(input, { target: { value: 'First question' } })
+    fireEvent.click(screen.getByText('Send'))
+    expect(screen.getByText('First question')).toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: 'New draft' } })
+    resolvePost({ ok: false, status: 503, json: async () => ({ error: 'AI is not configured' }) } as Response)
+
+    expect(await screen.findByText('AI is not configured')).toBeInTheDocument()
+    expect(input).toHaveValue('New draft')
+    expect(screen.queryByText('First question')).not.toBeInTheDocument()
+  })
+
   it('shows "Could not load conversation" when the history GET returns a non-ok response, and still allows sending', async () => {
     fetchMock.mockImplementationOnce(() => jsonResponse({ error: 'boom' }, 500))
     render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
