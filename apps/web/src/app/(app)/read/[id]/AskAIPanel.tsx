@@ -20,11 +20,22 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    let cancelled = false
+    setError(null)
     fetch(`/api/documents/${documentId}/ask`)
-      .then((r) => r.json())
-      .then(({ messages: history }) => setMessages(history ?? []))
-      .catch(() => {})
-      .finally(() => setLoadedDocumentId(documentId))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`History request failed: ${r.status}`)
+        const { messages: history } = await r.json()
+        if (!cancelled) setMessages(history ?? [])
+      })
+      .catch(() => {
+        // Sending is still allowed: the POST reads authoritative history server-side.
+        if (!cancelled) setError('Could not load conversation')
+      })
+      .finally(() => {
+        if (!cancelled) setLoadedDocumentId(documentId)
+      })
+    return () => { cancelled = true }
   }, [documentId])
 
   const historyLoaded = loadedDocumentId === documentId
@@ -36,10 +47,17 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
   async function handleSend() {
     const question = input.trim()
     if (!question || loading || !historyLoaded) return
+    const optimistic: Message = { role: 'user', content: question }
     setInput('')
     setError(null)
-    setMessages((prev) => [...prev, { role: 'user', content: question }])
+    setMessages((prev) => [...prev, optimistic])
     setLoading(true)
+
+    function rollback(message: string) {
+      setMessages((prev) => prev.filter((m) => m !== optimistic))
+      setInput(question)
+      setError(message)
+    }
 
     try {
       const res = await fetch(`/api/documents/${documentId}/ask`, {
@@ -49,12 +67,12 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
       })
       const json = await res.json()
       if (!res.ok) {
-        setError(json.error ?? 'Something went wrong')
+        rollback(json.error ?? 'Something went wrong')
         return
       }
       setMessages((prev) => [...prev, json.message])
     } catch {
-      setError('Something went wrong')
+      rollback('Something went wrong')
     } finally {
       setLoading(false)
     }
@@ -70,7 +88,7 @@ export function AskAIPanel({ documentId, onCitationClick, onClose }: Props) {
       </div>
 
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
+        {messages.length === 0 && !error && (
           <p className="text-sm text-neutral-400">Ask a question about this document.</p>
         )}
         {messages.map((m, i) => (

@@ -81,7 +81,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           'pdfjs-dist/build/pdf.worker.min.mjs',
           import.meta.url
         ).toString()
-        const doc = await pdfjs.getDocument(url).promise
+        const doc = await pdfjs.getDocument({ url }).promise
         if (!cancelled) { setPdf(doc); setLoading(false) }
       } catch (e) {
         if (!cancelled) {

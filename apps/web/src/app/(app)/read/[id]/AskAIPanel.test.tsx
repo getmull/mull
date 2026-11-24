@@ -71,11 +71,61 @@ describe('AskAIPanel', () => {
     render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
     await screen.findByText('Ask a question about this document.')
 
-    fireEvent.change(screen.getByPlaceholderText('Ask a question…'), { target: { value: 'Q' } })
+    const input = screen.getByPlaceholderText('Ask a question…')
+    fireEvent.change(input, { target: { value: 'Q' } })
     fireEvent.click(screen.getByText('Send'))
 
     expect(await screen.findByText('AI is not configured')).toBeInTheDocument()
-    expect(screen.getByText('Q')).toBeInTheDocument()
+    expect(input).toHaveValue('Q')
+    // The optimistic user bubble is rolled back; 'Q' only survives in the input.
+    expect(screen.queryByText('Q')).not.toBeInTheDocument()
+  })
+
+  it('rolls back the optimistic message and restores the question when the request throws', async () => {
+    fetchMock.mockImplementation((url: unknown, opts?: RequestInit) => {
+      if (String(url).endsWith('/ask') && opts?.method === 'POST') {
+        return Promise.reject(new Error('network down'))
+      }
+      return jsonResponse({ messages: [] })
+    })
+    render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
+    await screen.findByText('Ask a question about this document.')
+
+    const input = screen.getByPlaceholderText('Ask a question…')
+    fireEvent.change(input, { target: { value: 'Q' } })
+    fireEvent.click(screen.getByText('Send'))
+
+    expect(await screen.findByText('Something went wrong')).toBeInTheDocument()
+    expect(input).toHaveValue('Q')
+    expect(screen.queryByText('Q')).not.toBeInTheDocument()
+    expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
+  })
+
+  it('shows "Could not load conversation" when the history GET returns a non-ok response, and still allows sending', async () => {
+    fetchMock.mockImplementationOnce(() => jsonResponse({ error: 'boom' }, 500))
+    render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
+
+    expect(await screen.findByText('Could not load conversation')).toBeInTheDocument()
+    expect(screen.queryByText('Ask a question about this document.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument()
+    const input = screen.getByPlaceholderText('Ask a question…')
+    expect(input).toBeEnabled()
+
+    fireEvent.change(input, { target: { value: 'Still works?' } })
+    fireEvent.click(screen.getByText('Send'))
+
+    expect(await screen.findByText('Answer to: Still works?')).toBeInTheDocument()
+    expect(screen.queryByText('Could not load conversation')).not.toBeInTheDocument()
+  })
+
+  it('shows "Could not load conversation" when the history fetch rejects, and still enables the input', async () => {
+    fetchMock.mockImplementationOnce(() => Promise.reject(new Error('network down')))
+    render(<AskAIPanel documentId="doc-1" onCitationClick={jest.fn()} onClose={jest.fn()} />)
+
+    expect(await screen.findByText('Could not load conversation')).toBeInTheDocument()
+    expect(screen.queryByText('Ask a question about this document.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Ask a question…')).toBeEnabled()
   })
 
   it('calls onClose when the close button is clicked', async () => {

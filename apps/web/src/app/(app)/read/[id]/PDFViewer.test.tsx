@@ -148,6 +148,16 @@ describe('PDFViewer', () => {
     await waitFor(() => expect(screen.getByText('1 / 3')).toBeInTheDocument())
   })
 
+  it('passes the signed URL to getDocument as a { url } params object (pdfjs-dist 6 dropped the bare-string form)', async () => {
+    const { getDocument } = jest.requireMock('pdfjs-dist') as { getDocument: jest.Mock }
+    getDocument.mockClear()
+
+    await renderAndWaitForLoad()
+
+    expect(getDocument).toHaveBeenCalledTimes(1)
+    expect(getDocument).toHaveBeenCalledWith({ url: 'https://signed.example/doc.pdf' })
+  })
+
   it('shows an error message when the signed URL request fails', async () => {
     fetchMock.mockImplementationOnce(() => jsonResponse({ error: 'nope' }, 500))
 
