@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import ReadPage from './page'
 import { createClient } from '@/lib/supabase/server'
-import { mockSupabaseClient } from '@/test-utils/supabase'
+import { chainable, mockSupabaseClient } from '@/test-utils/supabase'
 
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
 jest.mock('./PDFViewer', () => ({ PDFViewer: () => <div data-testid="pdf-viewer" /> }))
@@ -86,8 +86,11 @@ describe('ReadPage', () => {
       from,
     })
 
+    const update = chainable({ data: null, error: null })
+    from.mockReturnValueOnce(update)
     await ReadPage(ctx('doc-1'))
 
-    expect(from).toHaveBeenCalledTimes(1)
+    expect(from).toHaveBeenCalledTimes(2)
+    expect(update.update).toHaveBeenCalledWith({ last_read_at: expect.any(String) })
   })
 })

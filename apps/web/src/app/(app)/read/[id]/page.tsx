@@ -20,7 +20,7 @@ export default async function ReadPage({ params }: { params: Promise<{ id: strin
 
   const { data: doc } = await supabase
     .from('documents')
-    .select('id, title, type, page_count, is_scanned, reading_state')
+    .select('id, title, type, page_count, is_scanned, reading_state, last_page')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -28,14 +28,14 @@ export default async function ReadPage({ params }: { params: Promise<{ id: strin
   if (!doc) notFound()
   if (doc.type !== 'pdf') notFound()
 
-  // Bump reading state to 'reading' if still unread
-  if (doc.reading_state === 'unread') {
-    await supabase
-      .from('documents')
-      .update({ reading_state: 'reading' })
-      .eq('id', id)
-      .eq('user_id', user.id)
-  }
+  await supabase
+    .from('documents')
+    .update({
+      last_read_at: new Date().toISOString(),
+      ...(doc.reading_state === 'unread' ? { reading_state: 'reading' } : {}),
+    })
+    .eq('id', id)
+    .eq('user_id', user.id)
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -51,9 +51,11 @@ export default async function ReadPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <PDFViewer
+        key={doc.id}
         documentId={doc.id}
         pageCount={doc.page_count ?? 1}
         isScanned={doc.is_scanned ?? false}
+        initialPage={doc.last_page ?? 1}
       />
     </div>
   )

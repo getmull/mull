@@ -11,7 +11,10 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:reader": "playwright test reading.spec.ts",
+    "test:e2e:supabase": "playwright test --config=playwright.supabase.config.ts",
+    "test:e2e:ai": "playwright test --config=playwright.ai.config.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.92",

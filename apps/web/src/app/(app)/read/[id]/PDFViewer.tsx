@@ -7,10 +7,15 @@ import { SelectionToolbar } from './SelectionToolbar'
 import { HighlightActionsPanel, type Action } from './HighlightActionsPanel'
 import { HighlightChatPanel } from './HighlightChatPanel'
 import { AskAIPanel } from './AskAIPanel'
+import { BookmarksPanel } from './BookmarksPanel'
+import { useReadingProgress } from './useReadingProgress'
+import { ReflowPage, type ReflowSelection } from './ReflowPage'
 
 interface Rect { x: number; y: number; width: number; height: number }
 
 interface Note { id: string; content: string }
+
+interface Bookmark { id: string; page_number: number; label: string | null }
 
 interface Highlight {
   id: string
@@ -24,7 +29,7 @@ interface Highlight {
 interface SelectionState {
   text: string
   pageRef: number
-  rects: Rect[]
+  rects: Rect[] | null
   toolbarX: number
   toolbarY: number
 }
@@ -33,6 +38,7 @@ interface Props {
   documentId: string
   pageCount: number
   isScanned: boolean
+  initialPage?: number
 }
 
 const COLOR_BG: Record<string, string> = {
@@ -42,15 +48,24 @@ const COLOR_BG: Record<string, string> = {
   pink:   'bg-pink-300',
 }
 
-export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
+export function PDFViewer({ documentId, pageCount, isScanned, initialPage }: Props) {
   const canvasRef        = useRef<HTMLCanvasElement>(null)
   const textLayerRef     = useRef<HTMLDivElement>(null)
   const pageContainerRef = useRef<HTMLDivElement>(null)
+  const renderGeneration = useRef(0)
   const renderTaskRef    = useRef<{ cancel: () => void } | null>(null)
   const textLayerRef2    = useRef<{ cancel: () => void } | null>(null)
+  const initialPosition = Math.max(1, initialPage ?? 1)
 
+  const [readingMode, setReadingMode] = useState<'original' | 'reflow'>('original')
+  const [reflowNotice, setReflowNotice] = useState<string | null>(null)
+  const [reflowFontSize, setReflowFontSize] = useState(18)
+  const [listHighlightId, setListHighlightId] = useState<string | null>(null)
+  const [listComposingNote, setListComposingNote] = useState(false)
+  const [highlightError, setHighlightError] = useState<string | null>(null)
+  const [renderedPage, setRenderedPage] = useState<number | null>(null)
   const [pdf, setPdf]               = useState<PDFDocumentProxy | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(initialPosition)
   const [scale, setScale]           = useState(1.2)
   const [pageSize, setPageSize]     = useState({ width: 0, height: 0 })
   const [loading, setLoading]       = useState(true)
@@ -66,6 +81,14 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   const [askAIOpen, setAskAIOpen]   = useState(false)
   const [chatHighlightId, setChatHighlightId] = useState<string | null>(null)
   const [pendingSeed, setPendingSeed] = useState<{ highlightId: string; action: Action; token: number } | null>(null)
+  const [bookmarks, setBookmarks]     = useState<Bookmark[]>([])
+  const [bookmarksOpen, setBookmarksOpen] = useState(false)
+  const [addingBookmark, setAddingBookmark] = useState(false)
+  const [bookmarkError, setBookmarkError]   = useState(false)
+  const [bookmarkListError, setBookmarkListError] = useState(false)
+  const [bookmarkDeleteError, setBookmarkDeleteError] = useState(false)
+  const [deletingBookmark, setDeletingBookmark] = useState<string | null>(null)
+  const progress = useReadingProgress(documentId, currentPage, pdf?.numPages ?? pageCount, initialPosition)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load PDF
@@ -82,7 +105,18 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           import.meta.url
         ).toString()
         const doc = await pdfjs.getDocument({ url }).promise
-        if (!cancelled) { setPdf(doc); setLoading(false) }
+        if (!cancelled) {
+          if (window.innerWidth < 768) {
+            const first = await doc.getPage(1)
+            const width = first.getViewport({ scale: 1 }).width
+            if (!cancelled) setScale(Math.max(0.1, Math.min(3, (window.innerWidth - 32) / width)))
+          }
+          if (!cancelled) {
+            setCurrentPage(Math.max(1, Math.min(initialPosition, doc.numPages)))
+            setPdf(doc)
+            setLoading(false)
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Failed to load PDF')
@@ -92,7 +126,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     }
     load()
     return () => { cancelled = true }
-  }, [documentId])
+  }, [documentId, initialPosition])
 
   // Load highlights — normalize position to Rect[] regardless of stored format
   useEffect(() => {
@@ -112,6 +146,18 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
       .catch(() => {})
   }, [documentId])
 
+  const loadBookmarks = useCallback(() => {
+    return fetch(`/api/bookmarks?documentId=${documentId}`)
+      .then((response) => {
+        if (!response.ok) throw new Error('Could not load bookmarks')
+        return response.json()
+      })
+      .then(({ bookmarks: items }) => { setBookmarks(items ?? []); setBookmarkListError(false) })
+      .catch(() => setBookmarkListError(true))
+  }, [documentId])
+
+  useEffect(() => { void loadBookmarks() }, [loadBookmarks])
+
   // AI features stay hidden unless a provider is configured server-side.
   useEffect(() => {
     fetch('/api/ai/status')
@@ -121,6 +167,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
   }, [])
 
   const renderPage = useCallback(async (doc: PDFDocumentProxy, pageNum: number, pageScale: number) => {
+    const generation = ++renderGeneration.current
     const canvas      = canvasRef.current
     const textLayerDiv = textLayerRef.current
     if (!canvas || !textLayerDiv) return
@@ -132,6 +179,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     let page: PDFPageProxy
     try { page = await doc.getPage(pageNum) } catch { return }
 
+    if (generation !== renderGeneration.current) { page.cleanup(); return }
     const viewport = page.getViewport({ scale: pageScale })
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -148,18 +196,29 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     renderTaskRef.current = renderTask
     try { await renderTask.promise } catch { page.cleanup(); return }
 
-    const pdfjs = await import('pdfjs-dist')
-    const textContent = await page.getTextContent()
-    const textLayer = new pdfjs.TextLayer({ textContentSource: textContent, container: textLayerDiv, viewport })
-    textLayerRef2.current = textLayer
-    try { await textLayer.render() } catch { /* cancelled */ }
+    if (generation !== renderGeneration.current) { page.cleanup(); return }
+    setRenderedPage(pageNum)
+    try {
+      const pdfjs = await import('pdfjs-dist')
+      const textContent = await page.getTextContent()
+      if (generation !== renderGeneration.current) return
+      const textLayer = new pdfjs.TextLayer({ textContentSource: textContent, container: textLayerDiv, viewport })
+      textLayerRef2.current = textLayer
+      await textLayer.render()
+    } catch { /* The original canvas remains readable if its text layer fails. */ }
+    finally { page.cleanup() }
+  }, [])
 
-    page.cleanup()
+  const cancelRender = useCallback(() => {
+    renderGeneration.current++
+    renderTaskRef.current?.cancel()
+    textLayerRef2.current?.cancel()
   }, [])
 
   useEffect(() => {
-    if (pdf) renderPage(pdf, currentPage, scale)
-  }, [pdf, currentPage, scale, renderPage])
+    if (pdf && readingMode === 'original') void renderPage(pdf, currentPage, scale)
+    return cancelRender
+  }, [pdf, currentPage, scale, readingMode, renderPage, cancelRender])
 
   const handleMouseUp = useCallback(() => {
     const sel = window.getSelection()
@@ -198,6 +257,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
 
   // Hover detection via coordinate math — keeps text layer fully interactive
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (listHighlightId) return
     const container = pageContainerRef.current
     if (!container) return
     const rect = container.getBoundingClientRect()
@@ -222,38 +282,66 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
         }, 600)
       }
     }
-  }, [highlights, currentPage, pinnedNoteId])
+  }, [highlights, currentPage, pinnedNoteId, listHighlightId])
 
   async function saveHighlight(color: string) {
     if (!selection || saving) return
     setSaving(true)
-    window.getSelection()?.removeAllRanges()
-
-    const res = await fetch('/api/highlights', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        document_id: documentId,
-        text: selection.text,
-        color,
-        page_ref: selection.pageRef,
-        position: selection.rects,
-      }),
-    })
-    if (res.ok) {
+    setHighlightError(null)
+    try {
+      const res = await fetch('/api/highlights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_id: documentId, text: selection.text, color, page_ref: selection.pageRef, position: selection.rects }),
+      })
+      if (!res.ok) throw new Error('Save failed')
       const { highlight } = await res.json()
       setHighlights((prev) => [...prev, highlight])
-    }
-    setSelection(null)
-    setSaving(false)
+      setSelection(null)
+      window.getSelection()?.removeAllRanges()
+    } catch { setHighlightError('Could not save the highlight. Please try again.') }
+    finally { setSaving(false) }
   }
 
   async function deleteHighlight(id: string) {
+    setHighlightError(null)
+    try {
+      const res = await fetch(`/api/highlights/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      setHoveredId(null)
+      setPinnedNoteId((prev) => (prev === id ? null : prev))
+      setListHighlightId((prev) => (prev === id ? null : prev))
+      if (chatHighlightId === id) closeHighlightChat()
+      setHighlights((prev) => prev.filter((h) => h.id !== id))
+    } catch { setHighlightError('Could not remove the highlight. Please try again.') }
+  }
+
+  const onReflowUnavailable = useCallback((message: string) => {
+    setReadingMode('original')
+    setReflowNotice(message)
+    setSelection(null)
+  }, [])
+
+  const onReflowSelection = useCallback((selected: ReflowSelection | null) => {
+    setSelection(selected ? { ...selected, rects: null } : null)
+  }, [])
+
+  function chooseReadingMode(mode: 'original' | 'reflow') {
+    setSelection(null)
+    window.getSelection()?.removeAllRanges()
     setHoveredId(null)
-    setPinnedNoteId((prev) => (prev === id ? null : prev))
-    setChatHighlightId((prev) => (prev === id ? null : prev))
-    await fetch(`/api/highlights/${id}`, { method: 'DELETE' })
-    setHighlights((prev) => prev.filter((h) => h.id !== id))
+    setPinnedNoteId(null)
+    setListHighlightId(null)
+    setReflowNotice(null)
+    setReadingMode(mode)
+  }
+
+  function chooseListHighlight(id: string) {
+    setHoveredId(null)
+    setPinnedNoteId(null)
+    setListComposingNote(false)
+    setHighlightPanelError(null)
+    setListHighlightId(id)
   }
 
   // Opens (or switches to) a highlight's chat panel and sends `action` as a
@@ -346,9 +434,60 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
     }
   }
 
+  // Returns whether the bookmark actually saved — mirrors addNote's
+  // success/failure reporting so the composer only clears its label input
+  // once the save is confirmed (see BookmarksPanel.submitAdd).
+  async function addBookmark(label: string): Promise<boolean> {
+    setAddingBookmark(true)
+    setBookmarkError(false)
+    try {
+      const res = await fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_id: documentId, page_number: currentPage, label: label || undefined }),
+      })
+      if (!res.ok) { setBookmarkError(true); return false }
+      const { bookmark } = await res.json()
+      setBookmarks((prev) => [...prev, bookmark].sort((a, b) => a.page_number - b.page_number))
+      return true
+    } catch {
+      setBookmarkError(true)
+      return false
+    } finally {
+      setAddingBookmark(false)
+    }
+  }
+
+  async function deleteBookmark(id: string) {
+    if (deletingBookmark) return
+    setDeletingBookmark(id)
+    setBookmarkDeleteError(false)
+    try {
+      const res = await fetch(`/api/bookmarks/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      setBookmarks((prev) => prev.filter((b) => b.id !== id))
+    } catch { setBookmarkDeleteError(true) }
+    finally { setDeletingBookmark(null) }
+  }
+
+  async function fitWidth() {
+    if (!pdf) return
+    const page = await pdf.getPage(currentPage)
+    const width = page.getViewport({ scale: 1 }).width
+    setScale(Math.max(0.1, Math.min(3, (window.innerWidth - 32) / width)))
+  }
+
+  function toggleBookmarks() {
+    setBookmarkError(false)
+    setBookmarksOpen((open) => !open)
+  }
+
   function goTo(page: number) {
     setSelection(null)
     setPinnedNoteId(null)
+    setListHighlightId(null)
+    setHighlightError(null)
+    setReflowNotice(null)
     setCurrentPage(Math.max(1, Math.min(page, pdf?.numPages ?? pageCount)))
   }
 
@@ -365,6 +504,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
 
   const totalPages      = pdf?.numPages ?? pageCount
   const pageHighlights  = highlights.filter((h) => h.page_ref === currentPage)
+  const listHighlight = pageHighlights.find((h) => h.id === listHighlightId)
   // A pinned note composer takes priority and stays visible regardless of
   // where the mouse currently is — only its own close button dismisses it.
   const activeHighlight =
@@ -378,36 +518,88 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
         </div>
       )}
 
+      {reflowNotice && <p role="alert" className="mx-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{reflowNotice}</p>}
+      {highlightError && <p role="alert" className="mx-4 text-sm text-red-700">{highlightError}</p>}
+
       {/* Controls */}
-      <div className="sticky top-0 z-10 bg-white border-b border-neutral-200 w-full flex items-center justify-center gap-4 px-4 py-2">
+      <div className="sticky top-0 z-10 bg-white border-b border-neutral-200 w-full flex flex-wrap items-center justify-center gap-2 px-3 py-2">
         <button onClick={() => goTo(currentPage - 1)} disabled={currentPage <= 1}
-          className="px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 disabled:opacity-30 hover:bg-neutral-50 transition-colors">
+          className="min-h-10 px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 disabled:opacity-30 hover:bg-neutral-50 transition-colors">
           Prev
         </button>
         <span className="text-sm text-neutral-600 tabular-nums">{currentPage} / {totalPages}</span>
         <button onClick={() => goTo(currentPage + 1)} disabled={currentPage >= totalPages}
-          className="px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 disabled:opacity-30 hover:bg-neutral-50 transition-colors">
+          className="min-h-10 px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 disabled:opacity-30 hover:bg-neutral-50 transition-colors">
           Next
         </button>
-        <div className="flex items-center gap-1 ml-4">
-          <button onClick={() => setScale((s) => Math.max(0.5, s - 0.2))}
-            className="px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">-</button>
+        <div role="group" aria-label="Reading view" className="flex rounded border border-neutral-200 p-0.5">
+          <button onClick={() => chooseReadingMode('original')} aria-pressed={readingMode === 'original'} className="min-h-10 rounded px-3 text-sm text-neutral-700 aria-pressed:bg-neutral-100">Original</button>
+          <button onClick={() => chooseReadingMode('reflow')} aria-pressed={readingMode === 'reflow'} disabled={isScanned}
+            title={isScanned ? 'Reflow is unavailable for scanned PDFs' : 'Read extracted text'}
+            className="min-h-10 rounded px-3 text-sm text-neutral-700 aria-pressed:bg-neutral-100 disabled:opacity-40">Reflow</button>
+        </div>
+        {readingMode === 'original' ? <>
+        <div className="flex items-center gap-1">
+          <button aria-label="Zoom out" onClick={() => setScale((s) => Math.max(0.1, s - 0.2))}
+            className="min-h-10 px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">-</button>
           <span className="text-xs text-neutral-500 w-12 text-center tabular-nums">{Math.round(scale * 100)}%</span>
-          <button onClick={() => setScale((s) => Math.min(3, s + 0.2))}
-            className="px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">+</button>
+          <button aria-label="Zoom in" onClick={() => setScale((s) => Math.min(3, s + 0.2))}
+            className="min-h-10 px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">+</button>
+        </div>
+        <button onClick={() => void fitWidth()} className="px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50">Fit width</button>
+        </> : <label className="flex items-center gap-2 text-sm text-neutral-600">Text size
+          <select aria-label="Text size" value={reflowFontSize} onChange={(event) => setReflowFontSize(Number(event.target.value))} className="min-h-10 rounded border border-neutral-200 px-2">
+            {[16, 18, 20, 24].map((size) => <option key={size} value={size}>{size}px</option>)}
+          </select>
+        </label>}
+        <div className="relative">
+          <button onClick={toggleBookmarks} aria-expanded={bookmarksOpen} aria-controls="bookmarks-panel"
+            className="min-h-10 px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">
+            Bookmarks{bookmarks.length > 0 ? ` (${bookmarks.length})` : ''}
+          </button>
+          {bookmarksOpen && (
+            <div id="bookmarks-panel" className="fixed left-4 right-4 top-44 z-50 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-1">
+              <BookmarksPanel
+                bookmarks={bookmarks}
+                currentPage={currentPage}
+                adding={addingBookmark}
+                addError={bookmarkError}
+                loadError={bookmarkListError}
+                deleteError={bookmarkDeleteError}
+                deletingId={deletingBookmark}
+                onRetryLoad={loadBookmarks}
+                onJump={(page) => { goTo(page); setBookmarksOpen(false) }}
+                onAdd={addBookmark}
+                onDelete={deleteBookmark}
+                onClose={() => setBookmarksOpen(false)}
+              />
+            </div>
+          )}
         </div>
         {aiEnabled && (
           <button onClick={toggleAskAI}
-            className="ml-4 px-3 py-1 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">
+            className="min-h-10 px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-200 hover:bg-neutral-50 transition-colors">
             Ask AI
           </button>
         )}
       </div>
 
+      <div role="status" aria-live="polite" className="text-xs text-neutral-600">
+        {progress.status === 'saving' && 'Saving your place…'}
+        {progress.status === 'saved' && 'Your place is saved'}
+        {progress.status === 'error' && <span>Couldn&apos;t save your place. <button className="underline" onClick={() => void progress.retry()}>Retry</button></span>}
+      </div>
+
+      {readingMode === 'reflow' && <ReflowPage documentId={documentId} page={currentPage} fontSize={reflowFontSize}
+        highlights={pageHighlights} onUnavailable={onReflowUnavailable} onSelection={onReflowSelection} onHighlightSelected={chooseListHighlight} />}
+      <div hidden={readingMode !== 'original'} className="w-full overflow-x-auto pb-4">
+      {renderedPage !== currentPage && <p role="status" className="py-4 text-center text-sm text-neutral-600">Loading page {currentPage}…</p>}
       {/* Page */}
       <div
         ref={pageContainerRef}
-        className="relative shadow-lg bg-white"
+        className="relative mx-auto shadow-lg bg-white"
+        aria-hidden={renderedPage !== currentPage}
+        hidden={renderedPage !== currentPage}
         style={pageSize.width ? { width: pageSize.width, height: pageSize.height } : undefined}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
@@ -420,7 +612,7 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           }
         }}
       >
-        <canvas ref={canvasRef} className="block" style={{ pointerEvents: 'none' }} />
+        <canvas role="img" aria-label={`Original PDF page ${currentPage}`} ref={canvasRef} className="block" style={{ pointerEvents: 'none' }} />
 
         {/* Highlight overlays — pointer-events: none so text layer stays fully interactive */}
         {pageHighlights.map((h) =>
@@ -552,6 +744,30 @@ export function PDFViewer({ documentId, pageCount, isScanned }: Props) {
           )
         })() : null}
       </div>
+
+      </div>
+
+      {pageHighlights.length > 0 && <section aria-label={`Highlights on page ${currentPage}`} className="mx-4 w-[calc(100%_-_2rem)] max-w-3xl rounded-xl border border-neutral-200 bg-white p-4">
+        <h2 className="mb-3 text-sm font-semibold text-neutral-800">Highlights on page {currentPage}</h2>
+        <ul className="space-y-2">
+          {pageHighlights.map((highlight) => <li key={highlight.id}>
+            <button onClick={() => chooseListHighlight(highlight.id)} aria-pressed={listHighlightId === highlight.id}
+              className="w-full rounded border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-700 [overflow-wrap:anywhere] aria-pressed:border-neutral-500">
+              <span className={`mr-2 inline-block h-2 w-2 rounded-full ${COLOR_BG[highlight.color] ?? COLOR_BG.yellow}`} aria-hidden="true" />
+              {highlight.text}
+            </button>
+          </li>)}
+        </ul>
+        {listHighlight && <div className="mt-3">
+          <button onClick={() => { setListHighlightId(null); setListComposingNote(false) }} className="mb-2 text-xs text-neutral-600 underline">Close highlight actions</button>
+          <HighlightActionsPanel comfortable notes={listHighlight.notes ?? []} aiEnabled={aiEnabled} addingNote={addingNote} errorMessage={highlightPanelError}
+            composingNote={listComposingNote} onAction={(action) => openHighlightChat(listHighlight.id, action)}
+            onOpenChat={() => openHighlightChatOnly(listHighlight.id)} onOpenNoteComposer={() => { setHighlightPanelError(null); setListComposingNote(true) }}
+            onCloseNoteComposer={() => setListComposingNote(false)}
+            onAddNote={async (content) => { const ok = await addNote(listHighlight.id, content); if (ok) setListComposingNote(false); return ok }}
+            onDeleteNote={(noteId) => deleteNote(listHighlight.id, noteId)} onRemove={() => deleteHighlight(listHighlight.id)} />
+        </div>}
+      </section>}
 
       {/* Selection toolbar */}
       {selection && (

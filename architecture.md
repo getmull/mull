@@ -50,7 +50,7 @@ Core services (consume any ContentProvider):
 User query
     ↓
 Context builder
-├── Current document chunks (vector similarity)
+├── Question-ranked passages from all document pages (V1: keyword ranking)
 ├── User highlights relevant to query
 ├── Prior AI conversation in this document
 └── [V1.1] Cross-library embeddings
@@ -61,6 +61,21 @@ Response + citations
     ↓
 Citation resolver → links back to exact source location
 ```
+
+V1 Ask AI reads extracted pages in batches so documents longer than the
+PostgREST response limit remain searchable. It ranks overlapping passages by
+question keywords, with recent user questions helping short follow-ups. Explicit
+page references and questions about highlights prioritize their source pages.
+General or unmatched questions receive excerpts sampled across the document.
+The source context is capped at 10,000 characters of passages plus 2,000
+characters of anchored highlights. Partial context is labeled as excerpts; a
+missing answer must not be described as absent from the entire document.
+
+Citations must reference pages actually supplied in the request context. Empty,
+invalid, and out-of-context page references reject the response; they are never
+moved to a nearby page. Previously stored approximate citations remain readable.
+Keyword retrieval does not provide semantic matching or exhaustive whole-document
+summaries; embeddings remain V1.1 work.
 
 **Cite-back standard:** Every Ask AI answer that draws on source material beyond what's already visible on screen must include a citation linking to the exact location (page number for PDFs, paragraph anchor for articles), enforced via a schema-validated response — not left to prompt engineering.
 

@@ -1,0 +1,67 @@
+import { test, expect } from '@playwright/test'
+
+import { readingPdf } from './fixtures/pdf'
+import { loginFixture } from './fixtures/login'
+
+
+test('upload → bookmark → leave → resume, including save failure and mobile layout', async ({ page, context, request }, testInfo) => {
+  await request.post('http://127.0.0.1:54329/reset')
+  await loginFixture(context)
+  await page.goto('/library')
+  await expect(page.getByText('Your next read starts here.')).toBeVisible()
+  await expect(page.getByText('Ask AI', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Upload a PDF' })).toBeEnabled()
+  await page.locator('input[type=file]').setInputFiles({ name: 'Reading experiment.pdf', mimeType: 'application/pdf', buffer: readingPdf() })
+  await page.getByRole('link', { name: /Reading experiment/ }).click()
+  await expect(page.getByText('1 / 3', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Bookmarks', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Label for page 2', exact: true }).fill('Pick up here')
+  await page.getByRole('button', { name: '+ Bookmark page 2', exact: true }).click()
+  await expect(page.getByText('Pick up here', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByText('Your place is saved')).toBeVisible()
+  await page.getByRole('link', { name: '← Library' }).click()
+  const continuing = page.getByRole('region', { name: 'Continue Reading' })
+  await expect(continuing.getByText('Resume at page 2 of 3')).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('library.png'), fullPage: true })
+  await continuing.getByRole('link').click()
+  await expect(page.getByText('2 / 3', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Bookmarks (1)', exact: true }).click()
+  await expect(page.getByText('Pick up here', { exact: true })).toBeVisible()
+  const panel = page.getByRole('region', { name: 'Bookmarks' })
+  const bounds = await panel.boundingBox()
+  expect(bounds!.x).toBeGreaterThanOrEqual(0)
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await page.screenshot({ path: testInfo.outputPath('bookmarks.png'), fullPage: true })
+  await page.route('**/api/bookmarks/*', (route) => route.fulfill({ status: 500, json: { error: 'Delete failed' } }))
+  await panel.getByRole('button', { name: 'Delete bookmark' }).click()
+  await expect(panel.getByRole('alert')).toHaveText(/Couldn't delete/)
+  await expect(page.getByText('Pick up here', { exact: true })).toBeVisible()
+  await page.unroute('**/api/bookmarks/*')
+  await panel.getByRole('button', { name: 'Delete bookmark' }).click()
+  await expect(page.getByText('No bookmarks yet.')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('region', { name: 'Bookmarks' })).toHaveCount(0)
+
+  await page.route('**/api/documents/*', (route) => route.request().method() === 'PATCH'
+    ? route.fulfill({ status: 500, json: { error: 'Save failed' } }) : route.continue())
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(page.getByText("Couldn't save your place.", { exact: false })).toBeVisible()
+  await page.unroute('**/api/documents/*')
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByText('Your place is saved')).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('3 / 3', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('reader.png'), fullPage: true })
+
+  // Navigate away before the debounce fires; the pending page must still save.
+  await page.getByRole('button', { name: 'Prev', exact: true }).click()
+  const documentId = page.url().split('/').at(-1)
+  const flushed = page.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().endsWith(`/api/documents/${documentId}`))
+  await page.getByRole('link', { name: '← Library' }).click()
+  await flushed
+  await page.reload()
+  await expect(page.getByText('Resume at page 2 of 3')).toBeVisible()
+})

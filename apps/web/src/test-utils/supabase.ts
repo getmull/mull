@@ -7,7 +7,7 @@ type QueryResult<T = unknown> = { data: T; error: unknown }
 
 export function chainable<T = unknown>(result: QueryResult<T> = { data: null as T, error: null }) {
   const builder: Record<string, unknown> = {}
-  const chainMethods = ['select', 'insert', 'update', 'delete', 'upsert', 'eq', 'order', 'limit']
+  const chainMethods = ['select', 'insert', 'update', 'delete', 'upsert', 'eq', 'order', 'limit', 'range']
   for (const method of chainMethods) {
     builder[method] = jest.fn(() => builder)
   }

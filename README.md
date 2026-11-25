@@ -15,17 +15,18 @@ Self-host it or use our cloud.
 Mull is pre-launch and under active development. Here's what's actually working today vs. still being built — see `roadmap.md` for the full V1 tracker.
 
 **Live now:**
-- **PDF reader** — upload, extract text, original layout view, zoom, page navigation
+- **PDF reader** — upload, extract text, original layout view, zoom, fit-to-width, page navigation, saved page position, bookmarks
+- **Library** — Continue Reading with saved pages and progress, plus recently added documents
 - **Highlights** — 4 colors, inline notes
 - **AI layer** — Ask AI with source citations, highlight → explain/define/simplify/translate, highlight → Chat (freeform follow-up)
 - **Self-hosting** — Docker Compose
 
 **Being built for V1 launch (not yet available):**
-- Reflow mode, bookmarks, reading progress persistence
+- Reflow mode and exact within-page scroll restoration
 - Article saving via bookmarklet (`@mozilla/readability`)
 - AI auto-summary on upload
 - Listen (read any document aloud)
-- Tags, collections, reading queue, full-text search, real library homepage
+- Tags, collections, reading queue, full-text search, library filtering and state controls
 - Reading Memory (reopen recap)
 - Mobile-responsive PWA
 

@@ -16,6 +16,9 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.json({ error: 'Ask AI is unavailable: Supabase is not configured.' }, { status: 503 })
+  }
   const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -42,12 +45,15 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.json({ error: 'Ask AI is unavailable: Supabase is not configured.' }, { status: 503 })
+  }
   const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await request.json()
+  const body = await request.json().catch(() => null)
   const question = typeof body?.question === 'string' ? body.question.trim() : ''
   if (!question || question.length > MAX_QUESTION_LENGTH) {
     return NextResponse.json({ error: 'Invalid question' }, { status: 400 })
@@ -81,12 +87,15 @@ export async function POST(
   // empty) document would produce a misleading answer.
   let context: DocumentContext
   try {
-    context = await buildDocumentContext(id, user.id, question)
+    context = await buildDocumentContext(id, user.id, question, history)
   } catch (error) {
     console.error('[ask] Failed to build document context', { name: error instanceof Error ? error.name : typeof error })
     return NextResponse.json({ error: 'Failed to load document' }, { status: 500 })
   }
   const { pagesText, highlightsText, pageNumbers } = context
+  if (pageNumbers.length === 0) {
+    return NextResponse.json({ error: 'This document has no extracted text for Ask AI. You can still read the original PDF.' }, { status: 422 })
+  }
 
   let assistantMessage: StoredMessage
   try {

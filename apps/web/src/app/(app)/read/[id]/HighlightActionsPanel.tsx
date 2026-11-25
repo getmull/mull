@@ -18,6 +18,7 @@ interface Note {
 }
 
 interface Props {
+  comfortable?: boolean
   notes: Note[]
   aiEnabled: boolean
   addingNote: boolean
@@ -32,11 +33,12 @@ interface Props {
   onAddNote: (content: string) => Promise<boolean>
   onDeleteNote: (noteId: string) => void
   onRemove: () => void
-  onMouseEnter: () => void
-  onMouseLeave: () => void
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
 }
 
 export function HighlightActionsPanel({
+  comfortable = false,
   notes,
   aiEnabled,
   addingNote,
@@ -68,7 +70,7 @@ export function HighlightActionsPanel({
 
   return (
     <div
-      className="flex flex-col gap-1.5 bg-white border border-neutral-200 rounded-lg shadow-lg p-2 text-xs w-72"
+      className={`flex flex-col gap-1.5 bg-white border border-neutral-200 rounded-lg shadow-lg p-2 ${comfortable ? 'w-full max-w-sm text-sm [&_button]:min-h-10 [&_button]:min-w-10 [&_button]:px-3' : 'text-xs w-72'}`}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >

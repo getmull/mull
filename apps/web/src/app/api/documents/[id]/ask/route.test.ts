@@ -14,6 +14,12 @@ jest.mock('@/lib/ai/provider', () => ({ getAIModel: jest.fn(), logAIError: jest.
 jest.mock('@/lib/ai/context', () => ({ buildDocumentContext: jest.fn() }))
 jest.mock('@/lib/ai/askAI', () => ({ askAI: jest.fn() }))
 
+const originalEnv = process.env
+beforeEach(() => {
+  process.env = { ...originalEnv, NEXT_PUBLIC_SUPABASE_URL: 'http://localhost:54321', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'test-key' }
+})
+afterEach(() => { process.env = originalEnv })
+
 const mockCreateClient = createClient as jest.Mock
 const mockGetAIModel = getAIModel as jest.Mock
 const mockLogAIError = logAIError as jest.Mock
@@ -270,10 +276,11 @@ describe('POST /api/documents/[id]/ask', () => {
 
     expect(res.status).toBe(201)
     expect(json.message).toEqual(assistantMessage)
+    expect(mockBuildContext).toHaveBeenCalledWith('doc-1', 'user-1', 'What is this about?', existingMessages)
     expect(mockAskAI).toHaveBeenCalledWith(
       expect.objectContaining({ question: 'What is this about?', history: existingMessages, validPageNumbers: [1, 2] })
     )
-    expect(mockBuildContext).toHaveBeenCalledWith('doc-1', 'user-1', 'What is this about?')
+    expect(mockBuildContext).toHaveBeenCalledWith('doc-1', 'user-1', 'What is this about?', existingMessages)
     expect(update.update).toHaveBeenCalledWith({
       messages: [...existingMessages, { role: 'user', content: 'What is this about?' }, assistantMessage],
     })
@@ -324,4 +331,44 @@ describe('POST /api/documents/[id]/ask', () => {
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'Failed to save conversation' })
   })
+})
+
+
+test('returns 400 for malformed JSON rather than an unhandled error', async () => {
+  mockCreateClient.mockResolvedValue(mockSupabaseClient())
+  const request = new NextRequest('http://localhost/api/documents/doc-1/ask', { method: 'POST', body: '{' })
+  expect((await POST(request, ctx())).status).toBe(400)
+})
+
+test('does not call AI or persist a turn when source retrieval fails', async () => {
+  mockAskAI.mockClear()
+  const client = mockSupabaseClient({ fromResults: [
+    { data: { id: 'doc-1' }, error: null }, { data: null, error: null },
+  ] })
+  mockCreateClient.mockResolvedValue(client)
+  mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+  mockBuildContext.mockRejectedValue(new Error('Could not load document text'))
+  expect((await POST(postRequest({ question: 'Why?' }), ctx())).status).toBe(500)
+  expect(mockAskAI).not.toHaveBeenCalled()
+  expect(client.from).toHaveBeenCalledTimes(2)
+})
+
+test('returns a readable disabled state for documents with no extracted text', async () => {
+  mockAskAI.mockClear()
+  mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [
+    { data: { id: 'doc-1' }, error: null }, { data: null, error: null },
+  ] }))
+  mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+  mockBuildContext.mockResolvedValue({ pagesText: '', highlightsText: '', pageNumbers: [] })
+  const response = await POST(postRequest({ question: 'Why?' }), ctx())
+  expect(response.status).toBe(422)
+  expect((await response.json()).error).toContain('no extracted text')
+  expect(mockAskAI).not.toHaveBeenCalled()
+})
+
+
+test('returns a clear disabled state when Supabase is not configured', async () => {
+  delete process.env.NEXT_PUBLIC_SUPABASE_URL
+  expect((await POST(postRequest({ question: 'Why?' }), ctx())).status).toBe(503)
+  expect((await GET({} as NextRequest, ctx())).status).toBe(503)
 })
