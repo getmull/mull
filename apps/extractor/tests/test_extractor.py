@@ -20,10 +20,24 @@ def make_pdf(text_per_page: list[str]) -> bytes:
 
 
 def make_empty_pdf() -> bytes:
-    doc = fitz.open()
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+    # Built by hand: PyMuPDF refuses doc.save() on a zero-page document, so
+    # the fixture can't come from fitz itself. A valid catalog with an empty
+    # page tree exercises extract_pdf's own "no pages" path.
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [] /Count 0 >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for off in offsets:
+        out += b"%010d 00000 n \n" % off
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return bytes(out)
 
 
 def test_health():
@@ -52,7 +66,7 @@ def test_zero_page_pdf_raises():
     pdf = make_empty_pdf()
     # PyMuPDF may either return len(doc)==0 ("no pages") or raise its own
     # exception on a zero-page stream ("Could not parse PDF") — both are ValueError
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="no pages|Could not parse PDF"):
         extract_pdf(pdf)
 
 
