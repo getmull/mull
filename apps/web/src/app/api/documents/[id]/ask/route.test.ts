@@ -1,0 +1,374 @@
+/**
+ * @jest-environment node
+ */
+import { NextRequest } from 'next/server'
+import { GET, POST } from './route'
+import { createClient } from '@/lib/supabase/server'
+import { getAIModel, logAIError } from '@/lib/ai/provider'
+import { buildDocumentContext } from '@/lib/ai/context'
+import { askAI } from '@/lib/ai/askAI'
+import { mockSupabaseClient } from '@/test-utils/supabase'
+
+jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
+jest.mock('@/lib/ai/provider', () => ({ getAIModel: jest.fn(), logAIError: jest.fn() }))
+jest.mock('@/lib/ai/context', () => ({ buildDocumentContext: jest.fn() }))
+jest.mock('@/lib/ai/askAI', () => ({ askAI: jest.fn() }))
+
+const originalEnv = process.env
+beforeEach(() => {
+  process.env = { ...originalEnv, NEXT_PUBLIC_SUPABASE_URL: 'http://localhost:54321', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'test-key' }
+})
+afterEach(() => { process.env = originalEnv })
+
+const mockCreateClient = createClient as jest.Mock
+const mockGetAIModel = getAIModel as jest.Mock
+const mockLogAIError = logAIError as jest.Mock
+const mockBuildContext = buildDocumentContext as jest.Mock
+const mockAskAI = askAI as jest.Mock
+
+function selectBuilder(result: { data: unknown; error: unknown }) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(result),
+  }
+}
+
+function updateBuilder(result: { data: unknown; error: unknown }) {
+  return {
+    update: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(result),
+  }
+}
+
+function ctx(id = 'doc-1') {
+  return { params: Promise.resolve({ id }) }
+}
+
+function postRequest(body: unknown) {
+  return new NextRequest('http://localhost/api/documents/doc-1/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+describe('GET /api/documents/[id]/ask', () => {
+  it('returns 401 when unauthenticated', async () => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ user: null }))
+
+    const res = await GET({} as NextRequest, ctx())
+
+    expect(res.status).toBe(401)
+  })
+
+  it('returns an empty array when there is no conversation yet', async () => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [{ data: null, error: null }] }))
+
+    const res = await GET({} as NextRequest, ctx())
+    const json = await res.json()
+
+    expect(json).toEqual({ messages: [] })
+  })
+
+  it('returns the stored conversation history', async () => {
+    const messages = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello', citations: [{ page: 1, quote: 'q' }] }]
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [{ data: { messages }, error: null }] }))
+
+    const res = await GET({} as NextRequest, ctx())
+    const json = await res.json()
+
+    expect(json).toEqual({ messages })
+  })
+
+  it('treats PGRST116 (no row) as an empty conversation', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: null, error: { code: 'PGRST116', message: 'no rows' } }] })
+    )
+
+    const res = await GET({} as NextRequest, ctx())
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ messages: [] })
+  })
+
+  it('returns a generic 500 on a real read error instead of an empty conversation', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({ fromResults: [{ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }] })
+    )
+
+    const res = await GET({} as NextRequest, ctx())
+    const json = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(json).toEqual({ error: 'Failed to load conversation' })
+    expect(JSON.stringify(json)).not.toContain('statement timeout')
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('logs only the error code and name, never the DB message, details or hint', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          {
+            data: null,
+            error: {
+              code: '22P02',
+              name: 'PostgrestError',
+              message: 'invalid input syntax: "secret user text"',
+              details: 'Key (text)=(secret user text)',
+              hint: 'secret hint',
+            },
+          },
+        ],
+      })
+    )
+
+    await GET({} as NextRequest, ctx())
+
+    expect(consoleError).toHaveBeenCalledWith(expect.any(String), { code: '22P02', name: 'PostgrestError' })
+    const logged = JSON.stringify(consoleError.mock.calls)
+    expect(logged).not.toContain('secret')
+    expect(logged).not.toContain('message')
+    expect(logged).not.toContain('details')
+    expect(logged).not.toContain('hint')
+    consoleError.mockRestore()
+    consoleError.mockRestore()
+  })
+})
+
+describe('POST /api/documents/[id]/ask', () => {
+  beforeEach(() => {
+    mockGetAIModel.mockReset()
+    mockBuildContext.mockReset()
+    mockAskAI.mockReset()
+    mockLogAIError.mockReset()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('returns 401 when unauthenticated', async () => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ user: null }))
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(401)
+  })
+
+  it.each([
+    ['empty', ''],
+    ['whitespace-only', '   '],
+    ['too long', 'x'.repeat(2001)],
+  ])('returns 400 for a %s question', async (_label, question) => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient())
+
+    const res = await POST(postRequest({ question }), ctx())
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when the document does not belong to the user', async () => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [{ data: null, error: null }] }))
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 503 when no AI provider is configured', async () => {
+    mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [{ data: { id: 'doc-1' }, error: null }] }))
+    mockGetAIModel.mockReturnValue(null)
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(503)
+    expect(mockAskAI).not.toHaveBeenCalled()
+  })
+
+  it('returns 502 when askAI fails', async () => {
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          { data: { id: 'doc-1' }, error: null },
+          { data: null, error: null },
+        ],
+      })
+    )
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+    mockBuildContext.mockResolvedValue({ pagesText: 'text', highlightsText: '', pageNumbers: [1] })
+    const failure = new Error('boom')
+    mockAskAI.mockRejectedValue(failure)
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(502)
+    expect(await res.json()).toEqual({ error: 'AI request failed' })
+    expect(mockLogAIError).toHaveBeenCalledWith('ask', failure)
+  })
+
+  it('returns a generic 500 without calling the AI when document context fails to load', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          { data: { id: 'doc-1' }, error: null },
+          { data: null, error: null },
+        ],
+      })
+    )
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+    mockBuildContext.mockRejectedValue(new Error('Failed to load document pages'))
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load document' })
+    expect(mockAskAI).not.toHaveBeenCalled()
+  })
+
+  it('returns a generic 500 without calling the AI when the existing conversation read fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockResolvedValue(
+      mockSupabaseClient({
+        fromResults: [
+          { data: { id: 'doc-1' }, error: null },
+          { data: null, error: { code: '08006', message: 'connection failure' } },
+        ],
+      })
+    )
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx())
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load conversation' })
+    expect(mockBuildContext).not.toHaveBeenCalled()
+    expect(mockAskAI).not.toHaveBeenCalled()
+  })
+
+  it('appends the new turn, saves it with optimistic update, and returns the assistant message on success', async () => {
+    const existingMessages = [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'earlier answer' }]
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
+    const from = jest.fn()
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages, updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
+
+    mockCreateClient.mockResolvedValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
+      from,
+    })
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+    mockBuildContext.mockResolvedValue({ pagesText: 'doc text', highlightsText: '', pageNumbers: [1, 2] })
+    const assistantMessage = { role: 'assistant', content: 'The answer', citations: [{ page: 2, quote: 'q' }] }
+    mockAskAI.mockResolvedValue(assistantMessage)
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx('doc-1'))
+    const json = await res.json()
+
+    expect(res.status).toBe(201)
+    expect(json.message).toEqual(assistantMessage)
+    expect(mockBuildContext).toHaveBeenCalledWith('doc-1', 'user-1', 'What is this about?', existingMessages)
+    expect(mockAskAI).toHaveBeenCalledWith(
+      expect.objectContaining({ question: 'What is this about?', history: existingMessages, validPageNumbers: [1, 2] })
+    )
+    expect(mockBuildContext).toHaveBeenCalledWith('doc-1', 'user-1', 'What is this about?', existingMessages)
+    expect(update.update).toHaveBeenCalledWith({
+      messages: [...existingMessages, { role: 'user', content: 'What is this about?' }, assistantMessage],
+    })
+  })
+
+  it('trims stored messages to fit the byte budget before saving', async () => {
+    const existingMessages = Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: 'x'.repeat(3500) + i }))
+    const update = updateBuilder({ data: { id: 'row-1' }, error: null })
+    const from = jest.fn()
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: { messages: existingMessages, updated_at: '2026-01-01T00:00:00Z' }, error: null }))
+    from.mockReturnValueOnce(update)
+
+    mockCreateClient.mockResolvedValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
+      from,
+    })
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+    mockBuildContext.mockResolvedValue({ pagesText: 'doc text', highlightsText: '', pageNumbers: [1] })
+    mockAskAI.mockResolvedValue({ role: 'assistant', content: 'answer', citations: [{ page: 1, quote: 'q' }] })
+
+    await POST(postRequest({ question: 'new question' }), ctx('doc-1'))
+
+    const [{ messages }] = update.update.mock.calls[0]
+    expect(new TextEncoder().encode(JSON.stringify(messages)).length).toBeLessThan(52000)
+    expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'answer', citations: [{ page: 1, quote: 'q' }] })
+  })
+
+  it('returns a generic 500 when saving the conversation fails', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    const from = jest.fn()
+    from.mockReturnValueOnce(selectBuilder({ data: { id: 'doc-1' }, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: null }))
+    from.mockReturnValueOnce(selectBuilder({ data: null, error: { code: 'PGRST116', message: 'not found' } }))
+    from.mockReturnValueOnce({ insert: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }) })
+
+    mockCreateClient.mockResolvedValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }) },
+      from,
+    })
+    mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+    mockBuildContext.mockResolvedValue({ pagesText: 'text', highlightsText: '', pageNumbers: [1] })
+    mockAskAI.mockResolvedValue({ role: 'assistant', content: 'answer', citations: [{ page: 1, quote: 'q' }] })
+
+    const res = await POST(postRequest({ question: 'What is this about?' }), ctx('doc-1'))
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to save conversation' })
+  })
+})
+
+
+test('returns 400 for malformed JSON rather than an unhandled error', async () => {
+  mockCreateClient.mockResolvedValue(mockSupabaseClient())
+  const request = new NextRequest('http://localhost/api/documents/doc-1/ask', { method: 'POST', body: '{' })
+  expect((await POST(request, ctx())).status).toBe(400)
+})
+
+test('does not call AI or persist a turn when source retrieval fails', async () => {
+  mockAskAI.mockClear()
+  const client = mockSupabaseClient({ fromResults: [
+    { data: { id: 'doc-1' }, error: null }, { data: null, error: null },
+  ] })
+  mockCreateClient.mockResolvedValue(client)
+  mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+  mockBuildContext.mockRejectedValue(new Error('Could not load document text'))
+  expect((await POST(postRequest({ question: 'Why?' }), ctx())).status).toBe(500)
+  expect(mockAskAI).not.toHaveBeenCalled()
+  expect(client.from).toHaveBeenCalledTimes(2)
+})
+
+test('returns a readable disabled state for documents with no extracted text', async () => {
+  mockAskAI.mockClear()
+  mockCreateClient.mockResolvedValue(mockSupabaseClient({ fromResults: [
+    { data: { id: 'doc-1' }, error: null }, { data: null, error: null },
+  ] }))
+  mockGetAIModel.mockReturnValue({ modelId: 'mock' })
+  mockBuildContext.mockResolvedValue({ pagesText: '', highlightsText: '', pageNumbers: [] })
+  const response = await POST(postRequest({ question: 'Why?' }), ctx())
+  expect(response.status).toBe(422)
+  expect((await response.json()).error).toContain('no extracted text')
+  expect(mockAskAI).not.toHaveBeenCalled()
+})
+
+
+test('returns a clear disabled state when Supabase is not configured', async () => {
+  delete process.env.NEXT_PUBLIC_SUPABASE_URL
+  expect((await POST(postRequest({ question: 'Why?' }), ctx())).status).toBe(503)
+  expect((await GET({} as NextRequest, ctx())).status).toBe(503)
+})

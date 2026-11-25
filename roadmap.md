@@ -15,17 +15,25 @@ Before any roadmap items, nail these four things. Everything else depends on the
 
 ## V1 — Launch
 
-- PDF upload, reflow mode, original view, bookmarks
-- Bookmarklet article saving
-- Listen (browser voice)
-- AI: auto-summary, Ask AI (with citations), highlight-explain
-- Highlights, annotations, tags, collections
-- Reading Memory (reopen recap)
-- Reading queue: Unread → Reading → Library → Archived
-- Full-text search (Postgres FTS)
-- Library homepage experience
-- Mobile-responsive PWA
-- Docker Compose self-hosting
+Status as of 2026-11-20 (includes current working-tree changes). ✅ done · 🟡 partial · ⬜ not started
+
+- 🟡 PDF upload, reflow mode, original view, bookmarks — upload/extraction/original-view done; **bookmarks and page-position persistence implemented; reflow and exact within-page scroll restoration remain**
+- ⬜ Bookmarklet article saving — `@mozilla/readability` not installed, reader 404s non-PDF docs
+- ⬜ Listen (browser voice)
+- 🟡 AI: auto-summary, Ask AI (with citations), highlight-explain, highlight-chat — Ask AI + highlight actions + Chat done; **auto-summary not started**
+- 🟡 Highlights, annotations, tags, collections — highlights + notes done; **tags/collections schema only, no API/UI**
+- ⬜ Reading Memory (reopen recap)
+- ⬜ Reading queue: Unread → Reading → Library → Archived — only one automatic unread→reading transition exists; no manual states, no queue UI
+- ⬜ Full-text search (Postgres FTS)
+- 🟡 Library homepage experience — Continue Reading cards with saved page/progress and reading-recency ordering, plus a chronological library list; queue filtering and manual state controls remain
+- ⬜ Mobile-responsive PWA — no manifest, no service worker
+- ✅ Docker Compose self-hosting
+
+**Suggested build order for what's left** (small/unblocking → core-loop gaps → new subsystems → polish):
+1. The daily PDF reading loop is verified with real local Supabase: login → upload → bookmark → reopen → resume from Continue Reading. Migrations and bookmark/document ownership checks pass; a direct-access bookmark RLS gap was fixed. Exact within-page scroll restoration remains. Ask AI now selects keyword-relevant passages across the document, paginates beyond the database response cap, and rejects citations to pages outside its supplied context. Real-Supabase browser verification with a deterministic local provider covers a page-76 answer and source navigation. Next: reader reflow.
+2. Article ingestion (bookmarklet + readability ContentProvider), Tags/Collections + reading-queue UI, Full-text search — closes the core Save→Read loop and makes the library homepage real
+3. Auto-summary, Listen, Reading Memory — new subsystems, higher effort
+4. Mobile-responsive PWA — cross-cutting, do last before launch
 
 ---
 

@@ -1,0 +1,253 @@
+# AGENTS.md
+
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+
+---
+
+## What Mull Is
+
+An open-source, self-hostable **reading workspace** for PDFs, articles, and technical documents — combining a PDF-first reading experience with AI-powered comprehension.
+
+**Core loop:** Save → Read → Understand → Remember
+
+Every feature decision should answer: *Does this make reading and understanding long-form content meaningfully better?*
+
+---
+
+## Tech Stack — Do Not Deviate Without Discussion
+
+| Layer | Choice |
+|---|---|
+| Frontend | Next.js 16 + TypeScript (App Router) |
+| Auth + DB | Supabase (Auth, Postgres, RLS, Realtime) |
+| File Storage | Supabase Storage |
+| PDF Rendering | PDF.js (browser-native, original layout view) |
+| PDF Text Extraction | `pdf-parse` (primary) + `pymupdf` Python sidecar (fallback) |
+| Article Parsing | `@mozilla/readability` |
+| AI | Multi-provider via Vercel AI SDK — Anthropic, OpenAI, Ollama (local), or any OpenAI-compatible endpoint. Operator-selected via `AI_PROVIDER`; Anthropic default model `Codex-sonnet-4-6` |
+| Listen | Web `SpeechSynthesis` API (V1) → ElevenLabs API (V1.1) |
+| Search | Postgres full-text search (V1) → pgvector (V1.1) |
+| Self-hosting | Docker Compose |
+
+---
+
+## Repo Structure
+
+```
+/apps
+  /web          ← Next.js frontend + API routes
+  /extractor    ← Python sidecar (pymupdf for complex PDFs)
+/packages
+  /types        ← shared TypeScript types and interfaces
+/docs           ← product specs, vision, roadmap, architecture
+/docker-compose.yml
+```
+
+## Development Commands
+
+**Web app (`apps/web`):**
+```bash
+pnpm dev                        # start dev server
+pnpm build                      # production build
+pnpm lint                       # ESLint
+pnpm test                       # run all unit/integration tests (Jest)
+pnpm test path/to/file.test.ts  # run a single test file
+pnpm test:e2e                   # run end-to-end tests (Playwright)
+pnpm test:e2e --headed          # run E2E tests with browser visible
+```
+
+**Python extractor (`apps/extractor`):**
+```bash
+pip install -r requirements.txt
+python main.py   # start sidecar server
+pytest           # run all Python tests
+pytest path/to/test_file.py  # run a single test file
+```
+
+**Full stack:**
+```bash
+docker-compose up         # start all services
+docker-compose up --build # rebuild and start
+```
+
+## Testing Strategy
+
+Every feature ships with tests. No exceptions.
+
+**Unit tests (Jest + React Testing Library):**
+- All utility functions and helpers
+- All React components (render, interaction, edge cases)
+- All API route handlers (with Supabase mocked at the client level)
+
+**Integration tests (Jest):**
+- ContentProvider implementations (PDFProvider, ArticleProvider)
+- AI layer (mocked AI provider responses)
+- Highlight, bookmark, search, and reading session flows
+
+**End-to-end tests (Playwright):**
+- Core user flows: upload PDF → read → highlight → Ask AI → Listen
+- Auth flows: sign up, sign in, sign out
+- Library: add, filter, search, archive
+- Graceful degradation: all flows with no API keys set
+
+**Python tests (pytest):**
+- Text extraction for valid PDFs, complex layouts, and scanned PDFs
+- Scanned PDF detection (< 50 chars/page threshold)
+- Sidecar API endpoints
+
+Test files live next to the code they test: `foo.ts` → `foo.test.ts`. E2E tests live in `apps/web/e2e/`.
+
+---
+
+## Architecture — ContentProvider Model
+
+All document types implement a shared `ContentProvider` interface. Every core service consumes `ContentProvider` — they are agnostic to the source type.
+
+```
+ContentProvider (interface)
+├── PDFProvider
+├── ArticleProvider
+└── [EPUBProvider, MarkdownProvider, DOCXProvider — V1.1/V2, not now]
+
+Core services (work with any ContentProvider):
+├── HighlightEngine
+├── BookmarkEngine
+├── AILayer
+├── SearchIndex
+├── ListenService
+├── ReadingMemory
+└── AnnotationStore
+```
+
+When adding a new content type, add a new Provider. Do not modify core services.
+
+**AI Layer pipeline:**
+```
+User query
+    ↓
+Context builder
+├── Current document chunks (vector similarity)
+├── User highlights relevant to query
+└── Prior AI conversation in this document
+    ↓
+Configured AI provider (Anthropic / OpenAI / Ollama / custom)
+    ↓
+Response + citations
+    ↓
+Citation resolver → links to exact source location (page # / paragraph anchor)
+```
+
+---
+
+## Database Schema
+
+```sql
+users                    -- Supabase Auth managed
+documents                -- id, user_id, type, title, source_url, storage_path, created_at
+document_pages           -- id, document_id, page_number, raw_text, embedding (vector, V1.1)
+highlights               -- id, document_id, user_id, text, color, page_ref, created_at
+bookmarks                -- id, document_id, user_id, page_number, label, created_at
+notes                    -- id, highlight_id, user_id, content, created_at
+ai_conversations         -- id, document_id, user_id, messages (jsonb), created_at
+highlight_conversations  -- id, highlight_id, user_id, messages (jsonb), created_at, updated_at
+reading_sessions         -- id, document_id, user_id, started_at, ended_at, progress_pct
+tags                     -- id, user_id, name
+document_tags            -- document_id, tag_id
+collections              -- id, user_id, name
+collection_docs          -- collection_id, document_id
+```
+
+---
+
+## Environment Variables
+
+```bash
+# Required
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_KEY=
+NEXT_PUBLIC_APP_URL=
+
+# Optional — AI provider selection. Unset/incomplete = AI features hidden, not broken.
+AI_PROVIDER=            # anthropic | openai | ollama | custom
+ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=        # default: Codex-sonnet-4-6
+OPENAI_API_KEY=
+OPENAI_MODEL=           # default: gpt-5.1
+OLLAMA_BASE_URL=        # default: http://localhost:11434/v1
+OLLAMA_MODEL=           # default: llama3.1
+AI_BASE_URL=            # custom OpenAI-compatible provider (Groq, Together, LM Studio, etc.)
+AI_API_KEY=
+AI_MODEL=
+
+# Optional — Listen falls back to browser voice if omitted
+ELEVENLABS_API_KEY=
+```
+
+---
+
+## Non-Negotiable Rules
+
+### AI Core Philosophy
+AI enhances the experience — it never gates the core reading workflow. Mull must be fully usable with zero API keys configured.
+
+**Graceful degradation:**
+| Missing config | Required behavior |
+|---|---|
+| No AI provider configured (`AI_PROVIDER` unset or incomplete) | Hide AI features in UI — app fully functional |
+| No `ELEVENLABS_API_KEY` | Listen falls back to browser voice — shows which mode is active |
+| Scanned PDF (< 50 chars/page average) | Surface notice in UI — original PDF view always available |
+| Complex layout reflow failure | Fall back to original PDF view — never a blank screen |
+
+### Cite-Back Standard
+Every AI answer that draws on source material beyond what's already visible on screen must include a citation linking to the exact source location:
+- PDFs: page number
+- Articles: paragraph anchor
+
+This is enforced at the architecture level (Ask AI uses a schema-validated `citations` field — an uncited response fails validation rather than shipping). Do not ship an Ask AI response without a citation.
+
+**Exception — per-highlight Chat**: answers scoped to a single highlighted passage don't require a separate citation. The passage is already anchored to a known page, shown in the Chat panel header — that anchor *is* the citation. This exception applies only to Chat's single-passage scope; if Chat ever expands to draw on content beyond its own highlight (e.g. surrounding pages, other highlights), it must pick up the same schema-validated citation enforcement Ask AI uses.
+
+### Code Quality
+- TypeScript strict mode. No `any` without a comment explaining why.
+- Every API route must handle missing env vars gracefully — check before calling, return a clear disabled state, not a 500.
+- Supabase Row-Level Security must be enabled on all user-data tables. Never bypass RLS.
+- All file uploads go through Supabase Storage. Never store binary data in Postgres.
+- Env var presence is the feature flag — no feature flags library needed in V1.
+
+---
+
+## Naming Conventions — Enforced Everywhere
+
+- The audio reading feature is **Listen** — not TTS, not Listen Mode, not Read Aloud. In UI, code, and docs.
+- Reading states are **Unread, Reading, Library, Archived** — not "Done," not "Complete." Library = reference documents.
+- The AI Q&A feature on a document (whole-document scope) is **Ask AI** — not Chat, not Q&A.
+- The AI follow-up feature scoped to a single highlighted passage is **Chat** — distinct from document-level Ask AI. Explain/Define/Simplify/Translate seed a Chat thread; freeform follow-up questions continue it.
+- The reopen recap is **Reading Memory** — not Summary, not Recap.
+- Highlight actions: **Explain / Define / Simplify / Translate** — these exact words.
+
+---
+
+## V1 Scope — What to Build Now
+
+- PDF upload, text extraction, reflow mode, original layout toggle
+- Page navigation, zoom, scroll position memory, reading progress
+- Bookmarks (named page markers inside documents)
+- Web article saving via bookmarklet (`@mozilla/readability`)
+- AI: auto-summary on upload, Ask AI (with source citations), highlight → explain/define/simplify/translate, highlight → Chat (freeform follow-up, seeded by the actions above or opened directly)
+- Highlights with colors (yellow, green, blue, pink) + inline notes
+- Tags, collections, reading queue (Unread → Reading → Library → Archived)
+- Reading Memory (recap when reopening a document after a gap)
+- Full-text search across documents, highlights, notes, bookmarks
+- Library homepage (Continue Reading, Recently Added, queue states)
+- Listen — browser voice (play/pause, skip ±30s, speed control, sentence highlighting, position memory)
+- Mobile-responsive PWA (375px minimum, share sheet support)
+- Docker Compose self-hosting
+
+## V1.1 and Beyond — Do Not Build Yet
+
+- Browser extension, cross-document AI, ElevenLabs BYOK, Reading Timeline, OCR/Tesseract, semantic search via pgvector, EPUB support, team sharing, native apps, offline reading, third-party integrations.
+
+---
+
+*AGENTS.md v2 — June 2026*

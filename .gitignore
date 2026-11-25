@@ -52,6 +52,8 @@ pnpm-debug.log*
 next-env.d.ts
 
 # Testing
+playwright-report/
+test-results/
 coverage/
 .nyc_output/
 

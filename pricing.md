@@ -20,7 +20,7 @@
 
 ## BYOK Always Wins
 
-Bringing your own Claude API key or ElevenLabs API key bypasses all usage limits on every tier. We never throttle BYOK usage — you're billing yourself directly.
+Bringing your own AI provider key (Anthropic, OpenAI, or any OpenAI-compatible endpoint — or running fully local via Ollama, at no cost at all) or ElevenLabs API key bypasses all usage limits on every tier. We never throttle BYOK usage — you're billing yourself directly, if at all.
 
 ---
 

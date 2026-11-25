@@ -11,16 +11,25 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:reader": "playwright test reading.spec.ts",
+    "test:e2e:supabase": "playwright test --config=playwright.supabase.config.ts",
+    "test:e2e:ai": "playwright test --config=playwright.ai.config.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.92",
+    "@ai-sdk/openai": "^3.0.80",
+    "@ai-sdk/openai-compatible": "^2.0.56",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
+    "ai": "^6.0.219",
     "next": "16.2.12",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "6.1.200",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -33,11 +42,11 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^10",
+    "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "tailwindcss": "^4",
-    "typescript": "^7"
+    "typescript": "~6.0.3"
   }
 }

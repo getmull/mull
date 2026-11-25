@@ -18,21 +18,23 @@ export function SelectionToolbar({ x, y, onColor, onDismiss }: Props) {
   return (
     <div
       className="fixed z-50 flex items-center gap-1 bg-white border border-neutral-200 rounded-lg shadow-lg px-2 py-1.5"
-      style={{ left: x, top: y - 48 }}
+      style={{ left: Math.max(8, Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 375) - 280)), top: Math.max(8, Math.min(y - 56, (typeof window !== 'undefined' ? window.innerHeight : 812) - 64)) }}
       onMouseDown={(e) => e.preventDefault()} // keep selection alive
     >
       {COLORS.map((c) => (
         <button
           key={c.name}
           title={c.label}
+          aria-label={`${c.label} highlight`}
           onClick={() => onColor(c.name)}
-          className={`w-5 h-5 rounded-full ${c.bg} hover:scale-110 transition-transform border border-white ring-1 ring-neutral-200`}
+          className={`w-10 h-10 rounded-full ${c.bg} hover:scale-110 transition-transform border border-white ring-1 ring-neutral-200`}
         />
       ))}
       <div className="w-px h-4 bg-neutral-200 mx-1" />
       <button
         onClick={onDismiss}
-        className="text-xs text-neutral-400 hover:text-neutral-700 transition-colors px-1"
+        aria-label="Dismiss selection"
+        className="text-xs text-neutral-400 hover:text-neutral-700 transition-colors min-h-10 px-2"
       >
         ✕
       </button>
